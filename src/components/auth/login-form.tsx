@@ -1,16 +1,69 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+type LoginResponse = {
+  success: boolean;
+  message: string;
+  user?: {
+    id: string;
+    name: string;
+    username: string;
+    email: string;
+    onboardingCompleted: boolean;
+  };
+};
+
 export function LoginForm() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
+
+    setIsSubmitting(true);
+    setFormError("");
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
+
+      const data = (await response.json()) as LoginResponse;
+
+      if (!response.ok || !data.user) {
+        setFormError(data.message);
+        return;
+      }
+
+      router.push(data.user.onboardingCompleted ? "/home" : "/onboarding");
+
+      router.refresh();
+    } catch {
+      setFormError("Could not connect to the server. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -32,6 +85,8 @@ export function LoginForm() {
             placeholder="you@example.com"
             autoComplete="email"
             required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
             className="h-12 border-white/10 bg-black/50 pl-10 text-white placeholder:text-white/25 focus-visible:border-[#6D001A]"
           />
         </div>
@@ -63,6 +118,8 @@ export function LoginForm() {
             placeholder="Enter your password"
             autoComplete="current-password"
             required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
             className="h-12 border-white/10 bg-black/50 px-10 text-white placeholder:text-white/25 focus-visible:border-[#6D001A]"
           />
 
@@ -81,11 +138,18 @@ export function LoginForm() {
         </div>
       </div>
 
+      {formError && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+          {formError}
+        </div>
+      )}
+
       <Button
         type="submit"
-        className="h-12 w-full rounded-xl bg-[#6D001A] text-white hover:bg-[#850522]"
+        disabled={isSubmitting}
+        className="h-11 w-full bg-[#6D001A] text-white hover:bg-[#850522]"
       >
-        Log in
+        {isSubmitting ? "Logging in..." : "Log in"}
       </Button>
     </form>
   );

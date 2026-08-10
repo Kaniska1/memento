@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Download,
+  LoaderCircle,
   LogOut,
   RotateCcw,
   Trash2,
@@ -16,6 +19,10 @@ type AccountSettingsProps = {
 export function AccountSettings({
   onResetSettings,
 }: AccountSettingsProps) {
+  const router = useRouter();
+
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   function exportData() {
     const data = {
       onboarding: localStorage.getItem(
@@ -24,13 +31,23 @@ export function AccountSettings({
       favouriteMovies: localStorage.getItem(
         "memento:favourite-movies",
       ),
-      diary: localStorage.getItem("memento:diary"),
+      favourites: localStorage.getItem(
+        "memento:favourites",
+      ),
+      diary: localStorage.getItem(
+        "memento:diary",
+      ),
       watchlist: localStorage.getItem(
         "memento:watchlist",
       ),
-      lists: localStorage.getItem("memento:lists"),
+      lists: localStorage.getItem(
+        "memento:lists",
+      ),
       settings: localStorage.getItem(
         "memento:settings",
+      ),
+      notifications: localStorage.getItem(
+        "memento:notifications",
       ),
     };
 
@@ -46,9 +63,45 @@ export function AccountSettings({
 
     anchor.href = url;
     anchor.download = "memento-data.json";
+
+    document.body.appendChild(anchor);
     anchor.click();
+    anchor.remove();
 
     URL.revokeObjectURL(url);
+  }
+
+  async function handleLogout() {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+
+    try {
+      const response = await fetch(
+        "/api/auth/logout",
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Logout failed.");
+      }
+
+      router.replace("/login");
+      router.refresh();
+    } catch (error) {
+      console.error("Could not log out:", error);
+
+      window.alert(
+        "Could not log out. Please try again.",
+      );
+    } finally {
+      setIsLoggingOut(false);
+    }
   }
 
   function clearLocalData() {
@@ -56,16 +109,22 @@ export function AccountSettings({
       "Delete all local Memento data? This cannot be undone.",
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     [
       "memento:onboarding",
       "memento:favourite-movies",
+      "memento:favourites",
       "memento:diary",
       "memento:watchlist",
       "memento:lists",
       "memento:settings",
-    ].forEach((key) => localStorage.removeItem(key));
+      "memento:notifications",
+    ].forEach((key) => {
+      localStorage.removeItem(key);
+    });
 
     window.location.href = "/";
   }
@@ -95,7 +154,7 @@ export function AccountSettings({
             </span>
 
             <span className="mt-1 block text-xs font-normal text-white/35">
-              Download your current frontend data as JSON.
+              Download your current Memento data as JSON.
             </span>
           </span>
         </Button>
@@ -122,17 +181,25 @@ export function AccountSettings({
         <Button
           type="button"
           variant="outline"
+          onClick={handleLogout}
+          disabled={isLoggingOut}
           className="h-auto w-full justify-start border-white/10 bg-black px-4 py-4 text-left text-white hover:bg-white/5"
         >
-          <LogOut className="mr-4 size-4 text-white/35" />
+          {isLoggingOut ? (
+            <LoaderCircle className="mr-4 size-4 animate-spin text-white/35" />
+          ) : (
+            <LogOut className="mr-4 size-4 text-white/35" />
+          )}
 
           <span>
             <span className="block text-sm font-medium">
-              Log out
+              {isLoggingOut
+                ? "Logging out..."
+                : "Log out"}
             </span>
 
             <span className="mt-1 block text-xs font-normal text-white/35">
-              Authentication will be connected during the backend phase.
+              End your current Memento session.
             </span>
           </span>
         </Button>
@@ -151,7 +218,8 @@ export function AccountSettings({
             </span>
 
             <span className="mt-1 block text-xs font-normal text-red-300/50">
-              Remove all diary, watchlist, lists, and onboarding data.
+              Remove local diary, watchlist, lists, favourites,
+              settings, and onboarding data.
             </span>
           </span>
         </Button>

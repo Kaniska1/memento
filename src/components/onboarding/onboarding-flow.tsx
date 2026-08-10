@@ -104,20 +104,48 @@ export function OnboardingFlow() {
         ? selectedGenres.length >= 3
         : ratings.length >= 5;
 
-  function continueFlow() {
-    if (!canContinue) return;
+  async function continueFlow() {
+  if (!canContinue) {
+    return;
+  }
 
-    if (step < 3) {
-      setStep((current) => current + 1);
-      return;
+  if (step < 3) {
+    setStep((current) => current + 1);
+    return;
+  }
+
+  const preferences = {
+    favouriteMovieIds: favourites.map(
+      (movie) => movie.id,
+    ),
+    preferredGenreIds: selectedGenres,
+    initialRatings: ratings,
+  };
+
+  try {
+    const response = await fetch(
+      "/api/onboarding",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify(preferences),
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Could not save onboarding.",
+      );
     }
 
-    const preferences = {
-      favouriteMovieIds: favourites.map((movie) => movie.id),
-      preferredGenreIds: selectedGenres,
-      initialRatings: ratings,
-    };
-    
+    // Temporary compatibility with the frontend
+    // until every page reads directly from MongoDB.
     localStorage.setItem(
       "memento:onboarding",
       JSON.stringify(preferences),
@@ -135,8 +163,21 @@ export function OnboardingFlow() {
       ),
     );
 
-    router.push("/home");
+    router.replace("/home");
+    router.refresh();
+  } catch (error) {
+    console.error(
+      "Could not complete onboarding:",
+      error,
+    );
+
+    setMovieLoadError(
+      error instanceof Error
+        ? error.message
+        : "Could not save your taste profile.",
+    );
   }
+}
 
   function retryMovieLoad() {
     setStep(2);
