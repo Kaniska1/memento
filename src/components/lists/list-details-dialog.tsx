@@ -32,10 +32,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 import {
-  addMovieToList,
-  removeMovieFromList,
-  updateMovieList,
-} from "@/lib/list-storage";
+  addListCollaborator,
+  removeListCollaborator,
+  updateList,
+} from "@/lib/api/lists";
 
 import type {
   ListCollaborator,
@@ -43,8 +43,17 @@ import type {
   MovieList,
 } from "@/types/list";
 
+type SearchMovie = {
+  id: number;
+  title: string;
+  year: string;
+  poster: string | null;
+  rating: number;
+  genre: string;
+};
+
 type SearchResponse = {
-  results: ListMovie[];
+  results: SearchMovie[];
   message?: string;
 };
 
@@ -52,7 +61,7 @@ type ListDetailsDialogProps = {
   list: MovieList | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onListUpdated: () => void;
+  onListUpdated: () => void | Promise<void>;
 };
 
 export function ListDetailsDialog({
@@ -63,22 +72,40 @@ export function ListDetailsDialog({
 }: ListDetailsDialogProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+
   const [isPublic, setIsPublic] = useState(false);
   const [isRanked, setIsRanked] = useState(false);
-  const [movies, setMovies] = useState<ListMovie[]>([]);
-  const [collaborators, setCollaborators] = useState<
-    ListCollaborator[]
-  >([]);
 
-  const [collaboratorInput, setCollaboratorInput] =
-    useState("");
+  const [movies, setMovies] = useState<ListMovie[]>([]);
 
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<ListMovie[]>([]);
+  const [results, setResults] = useState<SearchMovie[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
   const [saved, setSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  const [collaborators, setCollaborators] = useState<
+    ListCollaborator[]
+  >([]);
+
+  const [collaboratorUsername, setCollaboratorUsername] =
+    useState("");
+
+  const [collaboratorError, setCollaboratorError] =
+    useState("");
+
+  const [
+    isAddingCollaborator,
+    setIsAddingCollaborator,
+  ] = useState(false);
+
+  const [
+    removingCollaboratorId,
+    setRemovingCollaboratorId,
+  ] = useState<string | null>(null);
 
   useEffect(() => {
     if (!list || !open) {
@@ -87,15 +114,22 @@ export function ListDetailsDialog({
 
     setTitle(list.title);
     setDescription(list.description);
+
     setIsPublic(list.isPublic);
     setIsRanked(list.isRanked);
+
     setMovies(list.movies);
     setCollaborators(list.collaborators ?? []);
 
     setQuery("");
     setResults([]);
+
     setSearchError("");
-    setCollaboratorInput("");
+    setSaveError("");
+
+    setCollaboratorUsername("");
+    setCollaboratorError("");
+
     setSaved(false);
   }, [list, open]);
 
@@ -124,15 +158,17 @@ export function ListDetailsDialog({
           },
         );
 
-        const data = (await response.json()) as SearchResponse;
+        const data =
+          (await response.json()) as SearchResponse;
 
         if (!response.ok) {
           throw new Error(
-            data.message || "Could not search for movies.",
+            data.message ||
+              "Could not search for movies.",
           );
         }
 
-        setResults(data.results);
+        setResults(data.results ?? []);
       } catch (error) {
         if (
           error instanceof DOMException &&
@@ -164,36 +200,54 @@ export function ListDetailsDialog({
   }
 
   function isMovieAdded(movieId: number) {
-    return movies.some((movie) => movie.id === movieId);
+    return movies.some(
+      (movie) => movie.movieId === movieId,
+    );
   }
 
-  function addMovie(movie: ListMovie) {
+  function addMovie(movie: SearchMovie) {
     if (isMovieAdded(movie.id)) {
       return;
     }
 
-    const nextMovies = [...movies, movie].map(
-      (item, index) => ({
-        ...item,
-        position: isRanked ? index + 1 : undefined,
-      }),
-    );
+    const newMovie: ListMovie = {
+      movieId: movie.id,
+      title: movie.title,
+      year: movie.year,
+      poster: movie.poster ?? null,
+      genre: movie.genre || "Film",
+      position: isRanked
+        ? movies.length + 1
+        : null,
+    };
 
-    setMovies(nextMovies);
+    setMovies((current) => [
+      ...current,
+      newMovie,
+    ]);
   }
 
   function removeMovie(movieId: number) {
-    const nextMovies = movies
-      .filter((movie) => movie.id !== movieId)
-      .map((movie, index) => ({
-        ...movie,
-        position: isRanked ? index + 1 : undefined,
-      }));
+    setMovies((current) =>
+      current
+        .filter(
+          (movie) =>
+            movie.movieId !== movieId,
+        )
+        .map((movie, index) => ({
+          ...movie,
 
-    setMovies(nextMovies);
+          position: isRanked
+            ? index + 1
+            : null,
+        })),
+    );
   }
 
-  function moveMovie(index: number, direction: -1 | 1) {
+  function moveMovie(
+    index: number,
+    direction: -1 | 1,
+  ) {
     const nextIndex = index + direction;
 
     if (
@@ -204,97 +258,251 @@ export function ListDetailsDialog({
     }
 
     const nextMovies = [...movies];
-    const [movedMovie] = nextMovies.splice(index, 1);
 
-    nextMovies.splice(nextIndex, 0, movedMovie);
+    const [movedMovie] = nextMovies.splice(
+      index,
+      1,
+    );
+
+    nextMovies.splice(
+      nextIndex,
+      0,
+      movedMovie,
+    );
 
     setMovies(
-      nextMovies.map((movie, movieIndex) => ({
-        ...movie,
-        position: movieIndex + 1,
-      })),
-    );
-  }
-
-  function addCollaborator() {
-    const username = collaboratorInput
-      .trim()
-      .replace(/^@/, "");
-
-    if (!username || isPublic) {
-      return;
-    }
-
-    const alreadyExists = collaborators.some(
-      (collaborator) =>
-        collaborator.username.toLowerCase() ===
-        username.toLowerCase(),
-    );
-
-    if (alreadyExists) {
-      return;
-    }
-
-    setCollaborators((current) => [
-      ...current,
-      {
-        id: crypto.randomUUID(),
-        name: username,
-        username,
-      },
-    ]);
-
-    setCollaboratorInput("");
-  }
-
-  function removeCollaborator(collaboratorId: string) {
-    setCollaborators((current) =>
-      current.filter(
-        (collaborator) =>
-          collaborator.id !== collaboratorId,
+      nextMovies.map(
+        (movie, movieIndex) => ({
+          ...movie,
+          position: movieIndex + 1,
+        }),
       ),
     );
   }
 
-  function saveChanges() {
-    const trimmedTitle = title.trim();
-
-    if (!trimmedTitle) {
+  function toggleRanked(checked: boolean) {
+    if (!list || !list.isOwner) {
       return;
     }
 
-    updateMovieList({
-      ...list,
-      title: trimmedTitle,
-      description: description.trim(),
-      isPublic,
-      isRanked,
-      collaborators: isPublic ? [] : collaborators,
-      movies: movies.map((movie, index) => ({
+    setIsRanked(checked);
+
+    setMovies((current) =>
+      current.map((movie, index) => ({
         ...movie,
-        position: isRanked ? index + 1 : undefined,
+
+        position: checked
+          ? index + 1
+          : null,
       })),
-    });
+    );
+  }
 
-    setSaved(true);
-    onListUpdated();
+  async function handleAddCollaborator() {
+    if (
+      !list ||
+      !list.isOwner ||
+      isPublic ||
+      isAddingCollaborator
+    ) {
+      return;
+    }
 
-    window.setTimeout(() => {
-      setSaved(false);
-    }, 1500);
+    const username = collaboratorUsername
+      .trim()
+      .replace(/^@/, "");
+
+    if (!username) {
+      return;
+    }
+
+    setIsAddingCollaborator(true);
+    setCollaboratorError("");
+
+    try {
+      const collaborator =
+        await addListCollaborator(
+          list.id,
+          username,
+        );
+
+      setCollaborators((current) => [
+        ...current,
+        collaborator,
+      ]);
+
+      setCollaboratorUsername("");
+
+      await onListUpdated();
+    } catch (error) {
+      setCollaboratorError(
+        error instanceof Error
+          ? error.message
+          : "Could not add collaborator.",
+      );
+    } finally {
+      setIsAddingCollaborator(false);
+    }
+  }
+
+  async function handleRemoveCollaborator(
+    userId: string,
+  ) {
+    const currentList = list;
+
+    if (
+      !currentList ||
+      !currentList.isOwner ||
+      removingCollaboratorId
+    ) {
+      return;
+    }
+
+    setRemovingCollaboratorId(userId);
+    setCollaboratorError("");
+
+    try {
+      await removeListCollaborator(
+        currentList.id,
+        userId,
+      );
+
+      setCollaborators((current) =>
+        current.filter(
+          (collaborator) =>
+            collaborator.userId !== userId,
+        ),
+      );
+
+      await onListUpdated();
+    } catch (error) {
+      setCollaboratorError(
+        error instanceof Error
+          ? error.message
+          : "Could not remove collaborator.",
+      );
+    } finally {
+      setRemovingCollaboratorId(null);
+    }
+  }
+
+  async function saveChanges() {
+    const trimmedTitle = title.trim();
+    const currentList = list;
+
+    if (
+      !trimmedTitle ||
+      isSaving ||
+      !currentList
+    ) {
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError("");
+    setSaved(false);
+
+    try {
+      /*
+       * The backend should enforce these
+       * permissions as well.
+       *
+       * Owners can update everything.
+       * Collaborators only submit movies.
+       */
+      if (list.isOwner) {
+        await updateList(currentList.id, {
+          title: trimmedTitle,
+
+          description:
+            description.trim(),
+
+          isPublic,
+          isRanked,
+
+          movies: movies.map(
+            (movie, index) => ({
+              ...movie,
+
+              position: isRanked
+                ? index + 1
+                : null,
+            }),
+          ),
+        });
+
+        /*
+         * Making a list public removes
+         * private collaborators on the
+         * backend.
+         */
+        if (isPublic) {
+          setCollaborators([]);
+        }
+      } else {
+        await updateList(currentList.id, {
+          movies: movies.map(
+            (movie, index) => ({
+              ...movie,
+
+              position: isRanked
+                ? index + 1
+                : null,
+            }),
+          ),
+        });
+      }
+
+      setSaved(true);
+
+      await onListUpdated();
+
+      window.setTimeout(() => {
+        setSaved(false);
+      }, 1500);
+    } catch (error) {
+      console.error(
+        "Could not update list:",
+        error,
+      );
+
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "Could not update this list.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (
+          isSaving ||
+          isAddingCollaborator ||
+          removingCollaboratorId
+        ) {
+          return;
+        }
+
+        onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent className="max-h-[92vh] overflow-y-auto border-white/10 bg-[#080808] text-white sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle className="text-3xl font-semibold tracking-[-0.04em] text-white">
-            Edit list
+            {list.isOwner
+              ? "Edit list"
+              : "Edit shared list"}
           </DialogTitle>
 
           <DialogDescription className="text-white/40">
-            Update the list, manage collaborators, and arrange
-            ranked films.
+            {list.isOwner
+              ? "Update the list, manage collaborators, and arrange films."
+              : "Add, remove, and arrange films in this shared list."}
           </DialogDescription>
         </DialogHeader>
 
@@ -313,12 +521,16 @@ export function ListDetailsDialog({
                 <Input
                   id="edit-list-title"
                   value={title}
+                  disabled={!list.isOwner}
                   onChange={(event) =>
                     setTitle(
-                      event.target.value.slice(0, 80),
+                      event.target.value.slice(
+                        0,
+                        100,
+                      ),
                     )
                   }
-                  className="h-11 border-white/10 bg-[#080808] text-white"
+                  className="h-11 border-white/10 bg-[#080808] text-white disabled:cursor-not-allowed disabled:opacity-50"
                 />
               </div>
 
@@ -338,13 +550,10 @@ export function ListDetailsDialog({
 
                   <Switch
                     checked={isPublic}
-                    onCheckedChange={(checked) => {
-                      setIsPublic(checked);
-
-                      if (checked) {
-                        setCollaborators([]);
-                      }
-                    }}
+                    disabled={!list.isOwner}
+                    onCheckedChange={
+                      setIsPublic
+                    }
                   />
                 </div>
 
@@ -365,109 +574,205 @@ export function ListDetailsDialog({
 
                   <Switch
                     checked={isRanked}
-                    onCheckedChange={(checked) => {
-                      setIsRanked(checked);
-
-                      setMovies((current) =>
-                        current.map((movie, index) => ({
-                          ...movie,
-                          position: checked
-                            ? index + 1
-                            : undefined,
-                        })),
-                      );
-                    }}
+                    disabled={!list.isOwner}
+                    onCheckedChange={
+                      toggleRanked
+                    }
                   />
                 </div>
               </div>
             </div>
 
             <div className="mt-5">
-              <label
-                htmlFor="edit-list-description"
-                className="mb-2 block text-sm font-medium text-white/70"
-              >
-                Description
-              </label>
+              <div className="mb-2 flex items-center justify-between">
+                <label
+                  htmlFor="edit-list-description"
+                  className="text-sm font-medium text-white/70"
+                >
+                  Description
+                </label>
+
+                <span className="text-xs text-white/25">
+                  {description.length}/1000
+                </span>
+              </div>
 
               <Textarea
                 id="edit-list-description"
                 value={description}
+                disabled={!list.isOwner}
                 onChange={(event) =>
                   setDescription(
-                    event.target.value.slice(0, 400),
+                    event.target.value.slice(
+                      0,
+                      1000,
+                    ),
                   )
                 }
-                className="min-h-24 resize-none border-white/10 bg-[#080808] text-white"
+                className="min-h-24 resize-none border-white/10 bg-[#080808] text-white disabled:cursor-not-allowed disabled:opacity-50"
               />
             </div>
+
+            {!list.isOwner && (
+              <p className="mt-4 text-xs text-white/30">
+                Only the owner can change
+                the list title, description,
+                privacy, or ranking mode.
+              </p>
+            )}
           </section>
 
           {/* Collaborators */}
           {!isPublic && (
             <section className="rounded-2xl border border-white/10 bg-black p-5">
-              <div className="flex items-center gap-2">
-                <UserPlus className="size-4 text-[#9B1738]" />
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[#9B1738]">
+                  Shared list
+                </p>
 
-                <h2 className="text-sm font-medium text-white">
+                <h2 className="mt-2 text-sm font-medium text-white">
                   Collaborators
                 </h2>
+
+                <p className="mt-1 text-xs leading-5 text-white/35">
+                  Collaborators can add,
+                  remove, and reorder films
+                  in this private list.
+                </p>
               </div>
 
-              <p className="mt-2 text-xs leading-5 text-white/35">
-                These usernames are frontend placeholders until
-                account invitations exist.
-              </p>
-
-              <div className="mt-4 flex gap-2">
-                <Input
-                  value={collaboratorInput}
-                  onChange={(event) =>
-                    setCollaboratorInput(event.target.value)
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      addCollaborator();
-                    }
-                  }}
-                  placeholder="@username"
-                  className="h-10 border-white/10 bg-[#080808] text-white placeholder:text-white/25"
-                />
-
-                <Button
-                  type="button"
-                  disabled={!collaboratorInput.trim()}
-                  onClick={addCollaborator}
-                  className="bg-[#6D001A] text-white hover:bg-[#850522]"
-                >
-                  Add
-                </Button>
-              </div>
-
-              {collaborators.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {collaborators.map((collaborator) => (
-                    <span
-                      key={collaborator.id}
-                      className="flex items-center gap-2 rounded-full border border-white/10 bg-[#080808] px-3 py-1.5 text-xs text-white/60"
-                    >
-                      @{collaborator.username}
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          removeCollaborator(
-                            collaborator.id,
-                          )
-                        }
-                        className="text-white/30 hover:text-white"
-                      >
-                        <X className="size-3" />
-                      </button>
+              {list.isOwner && (
+                <div className="mt-5 flex gap-2">
+                  <div className="relative flex-1">
+                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/25">
+                      @
                     </span>
-                  ))}
+
+                    <Input
+                      value={
+                        collaboratorUsername
+                      }
+                      onChange={(event) => {
+                        setCollaboratorUsername(
+                          event.target.value.replace(
+                            /^@/,
+                            "",
+                          ),
+                        );
+
+                        setCollaboratorError(
+                          "",
+                        );
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key ===
+                          "Enter"
+                        ) {
+                          event.preventDefault();
+
+                          void handleAddCollaborator();
+                        }
+                      }}
+                      placeholder="username"
+                      disabled={
+                        isAddingCollaborator
+                      }
+                      className="h-11 border-white/10 bg-[#080808] pl-8 text-white placeholder:text-white/25"
+                    />
+                  </div>
+
+                  <Button
+                    type="button"
+                    disabled={
+                      !collaboratorUsername.trim() ||
+                      isAddingCollaborator
+                    }
+                    onClick={() =>
+                      void handleAddCollaborator()
+                    }
+                    className="bg-[#6D001A] text-white hover:bg-[#850522]"
+                  >
+                    {isAddingCollaborator ? (
+                      <LoaderCircle className="size-4 animate-spin" />
+                    ) : (
+                      <>
+                        <UserPlus className="mr-2 size-4" />
+                        Add
+                      </>
+                    )}
+                  </Button>
                 </div>
+              )}
+
+              {collaboratorError && (
+                <p className="mt-3 text-sm text-red-300">
+                  {collaboratorError}
+                </p>
+              )}
+
+              {collaborators.length >
+              0 ? (
+                <div className="mt-5 space-y-2">
+                  {collaborators.map(
+                    (collaborator) => (
+                      <div
+                        key={
+                          collaborator.userId
+                        }
+                        className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-[#080808] px-4 py-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-white">
+                            @
+                            {
+                              collaborator.username
+                            }
+                          </p>
+
+                          <p className="mt-0.5 text-[11px] text-white/30">
+                            Can edit films
+                          </p>
+                        </div>
+
+                        {list.isOwner && (
+                          <button
+                            type="button"
+                            disabled={
+                              removingCollaboratorId ===
+                              collaborator.userId
+                            }
+                            onClick={() =>
+                              void handleRemoveCollaborator(
+                                collaborator.userId,
+                              )
+                            }
+                            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-white/25 transition hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40"
+                            aria-label={`Remove @${collaborator.username}`}
+                          >
+                            {removingCollaboratorId ===
+                            collaborator.userId ? (
+                              <LoaderCircle className="size-4 animate-spin" />
+                            ) : (
+                              <X className="size-4" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    ),
+                  )}
+                </div>
+              ) : (
+                <p className="mt-5 text-xs text-white/25">
+                  No collaborators yet.
+                </p>
+              )}
+
+              {!list.isOwner && (
+                <p className="mt-4 border-t border-white/10 pt-4 text-xs text-white/30">
+                  Only the list owner can
+                  manage collaborators.
+                </p>
               )}
             </section>
           )}
@@ -484,7 +789,9 @@ export function ListDetailsDialog({
               <Input
                 value={query}
                 onChange={(event) =>
-                  setQuery(event.target.value)
+                  setQuery(
+                    event.target.value,
+                  )
                 }
                 placeholder="Search for a movie..."
                 className="h-11 border-white/10 bg-[#080808] pl-11 pr-11 text-white placeholder:text-white/25"
@@ -504,7 +811,8 @@ export function ListDetailsDialog({
             {results.length > 0 && (
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {results.map((movie) => {
-                  const selected = isMovieAdded(movie.id);
+                  const selected =
+                    isMovieAdded(movie.id);
 
                   return (
                     <button
@@ -512,7 +820,9 @@ export function ListDetailsDialog({
                       type="button"
                       onClick={() =>
                         selected
-                          ? removeMovie(movie.id)
+                          ? removeMovie(
+                              movie.id,
+                            )
                           : addMovie(movie)
                       }
                       className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${
@@ -524,14 +834,16 @@ export function ListDetailsDialog({
                       <div className="relative aspect-[2/3] w-12 shrink-0 overflow-hidden rounded-lg bg-white/5">
                         {movie.poster ? (
                           <Image
-                            src={movie.poster}
+                            src={
+                              movie.poster
+                            }
                             alt={`${movie.title} poster`}
                             fill
                             className="object-cover"
                             sizes="48px"
                           />
                         ) : (
-                          <div className="flex h-full items-center justify-center text-[9px] text-white/25">
+                          <div className="flex h-full items-center justify-center px-1 text-center text-[9px] text-white/25">
                             No poster
                           </div>
                         )}
@@ -543,7 +855,8 @@ export function ListDetailsDialog({
                         </p>
 
                         <p className="mt-1 text-xs text-white/35">
-                          {movie.year} · {movie.genre}
+                          {movie.year} ·{" "}
+                          {movie.genre}
                         </p>
                       </div>
 
@@ -567,7 +880,7 @@ export function ListDetailsDialog({
             )}
           </section>
 
-          {/* Current movies */}
+          {/* Current films */}
           <section>
             <div className="flex items-center justify-between gap-4">
               <h2 className="text-sm font-medium text-white">
@@ -576,110 +889,144 @@ export function ListDetailsDialog({
 
               <span className="text-xs text-white/35">
                 {movies.length}{" "}
-                {movies.length === 1 ? "film" : "films"}
+                {movies.length === 1
+                  ? "film"
+                  : "films"}
               </span>
             </div>
 
             {movies.length === 0 ? (
               <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-black px-6 py-14 text-center">
                 <p className="text-sm text-white/35">
-                  This list contains no films yet.
+                  This list contains no
+                  films yet.
                 </p>
               </div>
             ) : (
               <div className="mt-4 space-y-3">
-                {movies.map((movie, index) => (
-                  <article
-                    key={movie.id}
-                    className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black p-3"
-                  >
-                    {isRanked && (
-                      <div className="flex w-10 shrink-0 items-center justify-center text-xl font-semibold text-[#9B1738]">
-                        {index + 1}
-                      </div>
-                    )}
-
-                    <Link
-                      href={`/movies/${movie.id}`}
-                      className="relative aspect-[2/3] w-12 shrink-0 overflow-hidden rounded-lg bg-white/5"
+                {movies.map(
+                  (movie, index) => (
+                    <article
+                      key={movie.movieId}
+                      className="flex items-center gap-4 rounded-2xl border border-white/10 bg-black p-3"
                     >
-                      {movie.poster ? (
-                        <Image
-                          src={movie.poster}
-                          alt={`${movie.title} poster`}
-                          fill
-                          className="object-cover"
-                          sizes="48px"
-                        />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-[9px] text-white/25">
-                          No poster
+                      {isRanked && (
+                        <div className="flex w-10 shrink-0 items-center justify-center text-xl font-semibold text-[#9B1738]">
+                          {index + 1}
                         </div>
                       )}
-                    </Link>
 
-                    <div className="min-w-0 flex-1">
                       <Link
-                        href={`/movies/${movie.id}`}
-                        className="truncate text-sm font-medium text-white hover:text-[#A51636]"
+                        href={`/movies/${movie.movieId}`}
+                        className="relative aspect-[2/3] w-12 shrink-0 overflow-hidden rounded-lg bg-white/5"
                       >
-                        {movie.title}
+                        {movie.poster ? (
+                          <Image
+                            src={
+                              movie.poster
+                            }
+                            alt={`${movie.title} poster`}
+                            fill
+                            className="object-cover"
+                            sizes="48px"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center px-1 text-center text-[9px] text-white/25">
+                            No poster
+                          </div>
+                        )}
                       </Link>
 
-                      <p className="mt-1 text-xs text-white/35">
-                        {movie.year} · {movie.genre}
-                      </p>
-                    </div>
-
-                    {isRanked && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          disabled={index === 0}
-                          onClick={() =>
-                            moveMovie(index, -1)
-                          }
-                          className="flex size-8 items-center justify-center rounded-lg border border-white/10 text-white/35 hover:text-white disabled:opacity-20"
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          href={`/movies/${movie.movieId}`}
+                          className="block truncate text-sm font-medium text-white hover:text-[#A51636]"
                         >
-                          <ArrowUp className="size-4" />
-                        </button>
+                          {movie.title}
+                        </Link>
 
-                        <button
-                          type="button"
-                          disabled={
-                            index === movies.length - 1
-                          }
-                          onClick={() =>
-                            moveMovie(index, 1)
-                          }
-                          className="flex size-8 items-center justify-center rounded-lg border border-white/10 text-white/35 hover:text-white disabled:opacity-20"
-                        >
-                          <ArrowDown className="size-4" />
-                        </button>
+                        <p className="mt-1 text-xs text-white/35">
+                          {movie.year || "—"}{" "}
+                          · {movie.genre}
+                        </p>
                       </div>
-                    )}
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        removeMovie(movie.id)
-                      }
-                      className="flex size-8 items-center justify-center rounded-lg text-white/25 hover:bg-red-500/10 hover:text-red-400"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
-                  </article>
-                ))}
+                      {isRanked && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={
+                              index === 0
+                            }
+                            onClick={() =>
+                              moveMovie(
+                                index,
+                                -1,
+                              )
+                            }
+                            className="flex size-8 items-center justify-center rounded-lg border border-white/10 text-white/35 hover:text-white disabled:opacity-20"
+                            aria-label={`Move ${movie.title} up`}
+                          >
+                            <ArrowUp className="size-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={
+                              index ===
+                              movies.length - 1
+                            }
+                            onClick={() =>
+                              moveMovie(
+                                index,
+                                1,
+                              )
+                            }
+                            className="flex size-8 items-center justify-center rounded-lg border border-white/10 text-white/35 hover:text-white disabled:opacity-20"
+                            aria-label={`Move ${movie.title} down`}
+                          >
+                            <ArrowDown className="size-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          removeMovie(
+                            movie.movieId,
+                          )
+                        }
+                        className="flex size-8 items-center justify-center rounded-lg text-white/25 hover:bg-red-500/10 hover:text-red-400"
+                        aria-label={`Remove ${movie.title}`}
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </article>
+                  ),
+                )}
               </div>
             )}
           </section>
+
+          {saveError && (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+              {saveError}
+            </div>
+          )}
         </div>
 
         <div className="mt-8 flex justify-end gap-3 border-t border-white/10 pt-5">
           <Button
             type="button"
             variant="ghost"
-            onClick={() => onOpenChange(false)}
+            disabled={
+              isSaving ||
+              isAddingCollaborator
+            }
+            onClick={() =>
+              onOpenChange(false)
+            }
             className="text-white/45 hover:bg-white/5 hover:text-white"
           >
             Cancel
@@ -687,17 +1034,28 @@ export function ListDetailsDialog({
 
           <Button
             type="button"
-            disabled={!title.trim()}
-            onClick={saveChanges}
+            disabled={
+              !title.trim() ||
+              isSaving
+            }
+            onClick={() =>
+              void saveChanges()
+            }
             className="bg-[#6D001A] px-6 text-white hover:bg-[#850522]"
           >
-            {saved ? (
+            {isSaving ? (
+              <LoaderCircle className="mr-2 size-4 animate-spin" />
+            ) : saved ? (
               <Check className="mr-2 size-4" />
             ) : (
               <Save className="mr-2 size-4" />
             )}
 
-            {saved ? "Saved" : "Save changes"}
+            {isSaving
+              ? "Saving..."
+              : saved
+                ? "Saved"
+                : "Save changes"}
           </Button>
         </div>
       </DialogContent>

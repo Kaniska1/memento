@@ -11,8 +11,6 @@ import {
   Lock,
   Plus,
   Search,
-  UserPlus,
-  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,111 +26,162 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-import { createMovieList } from "@/lib/list-storage";
+import { createList } from "@/lib/api/lists";
 
 import type {
-  ListCollaborator,
   ListMovie,
+  MovieList,
 } from "@/types/list";
 
+type SearchMovie = {
+  id: number;
+  title: string;
+  year: string;
+  poster: string | null;
+  rating: number;
+  genre: string;
+};
+
 type SearchResponse = {
-  results: Array<{
-    id: number;
-    title: string;
-    year: string;
-    poster: string | null;
-    rating: number;
-    genre: string;
-  }>;
+  results: SearchMovie[];
   message?: string;
 };
 
 type CreateListDialogProps = {
   trigger?: React.ReactNode;
+
+  onCreated?: (
+    list: MovieList,
+  ) => void;
 };
 
 export function CreateListDialog({
   trigger,
+  onCreated,
 }: CreateListDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] =
+    useState(false);
 
-  const [title, setTitle] = useState("");
+  const [title, setTitle] =
+    useState("");
+
   const [description, setDescription] =
     useState("");
-  const [isPublic, setIsPublic] = useState(false);
-  const [isRanked, setIsRanked] = useState(false);
 
-  const [movies, setMovies] = useState<ListMovie[]>([]);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<ListMovie[]>([]);
-  const [isSearching, setIsSearching] =
+  const [isPublic, setIsPublic] =
     useState(false);
-  const [searchError, setSearchError] = useState("");
 
-  const [collaboratorInput, setCollaboratorInput] =
+  const [isRanked, setIsRanked] =
+    useState(false);
+
+  const [movies, setMovies] =
+    useState<ListMovie[]>([]);
+
+  const [query, setQuery] =
     useState("");
-  const [collaborators, setCollaborators] = useState<
-    ListCollaborator[]
-  >([]);
+
+  const [results, setResults] =
+    useState<SearchMovie[]>([]);
+
+  const [
+    isSearching,
+    setIsSearching,
+  ] = useState(false);
+
+  const [
+    searchError,
+    setSearchError,
+  ] = useState("");
+
+  const [
+    isCreating,
+    setIsCreating,
+  ] = useState(false);
+
+  const [
+    createError,
+    setCreateError,
+  ] = useState("");
 
   useEffect(() => {
-    const trimmedQuery = query.trim();
+    const trimmedQuery =
+      query.trim();
 
-    if (!open || trimmedQuery.length < 2) {
+    if (
+      !open ||
+      trimmedQuery.length < 2
+    ) {
       setResults([]);
       setSearchError("");
       return;
     }
 
-    const controller = new AbortController();
+    const controller =
+      new AbortController();
 
-    const timeout = window.setTimeout(async () => {
-      setIsSearching(true);
-      setSearchError("");
+    const timeout =
+      window.setTimeout(
+        async () => {
+          setIsSearching(true);
+          setSearchError("");
 
-      try {
-        const response = await fetch(
-          `/api/tmdb/search?query=${encodeURIComponent(
-            trimmedQuery,
-          )}`,
-          {
-            signal: controller.signal,
-          },
-        );
+          try {
+            const response =
+              await fetch(
+                `/api/tmdb/search?query=${encodeURIComponent(
+                  trimmedQuery,
+                )}`,
+                {
+                  signal:
+                    controller.signal,
+                },
+              );
 
-        const data =
-          (await response.json()) as SearchResponse;
+            const data =
+              (await response.json()) as SearchResponse;
 
-        if (!response.ok) {
-          throw new Error(
-            data.message ||
-              "Could not search for movies.",
-          );
-        }
+            if (!response.ok) {
+              throw new Error(
+                data.message ||
+                  "Could not search for movies.",
+              );
+            }
 
-        setResults(data.results);
-      } catch (error) {
-        if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
-        ) {
-          return;
-        }
+            setResults(
+              data.results ?? [],
+            );
+          } catch (error) {
+            if (
+              error instanceof
+                DOMException &&
+              error.name ===
+                "AbortError"
+            ) {
+              return;
+            }
 
-        setSearchError(
-          error instanceof Error
-            ? error.message
-            : "Could not search for movies.",
-        );
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsSearching(false);
-        }
-      }
-    }, 400);
+            setSearchError(
+              error instanceof Error
+                ? error.message
+                : "Could not search for movies.",
+            );
+          } finally {
+            if (
+              !controller.signal
+                .aborted
+            ) {
+              setIsSearching(false);
+            }
+          }
+        },
+        400,
+      );
 
     return () => {
-      window.clearTimeout(timeout);
+      window.clearTimeout(
+        timeout,
+      );
+
       controller.abort();
     };
   }, [query, open]);
@@ -142,92 +191,170 @@ export function CreateListDialog({
     setDescription("");
     setIsPublic(false);
     setIsRanked(false);
+
     setMovies([]);
+
     setQuery("");
     setResults([]);
+
     setSearchError("");
-    setCollaboratorInput("");
-    setCollaborators([]);
+    setCreateError("");
+
+    setIsCreating(false);
   }
 
-  function addMovie(movie: ListMovie) {
-    if (
-      movies.some(
-        (existingMovie) =>
-          existingMovie.id === movie.id,
-      )
-    ) {
-      return;
-    }
-
-    setMovies((current) => [...current, movie]);
-  }
-
-  function removeMovie(movieId: number) {
-    setMovies((current) =>
-      current.filter((movie) => movie.id !== movieId),
+  function isMovieSelected(
+    movieId: number,
+  ) {
+    return movies.some(
+      (movie) =>
+        movie.movieId === movieId,
     );
   }
 
-  function addCollaborator() {
-    const username = collaboratorInput
-      .trim()
-      .replace(/^@/, "");
-
-    if (!username || isPublic) {
-      return;
-    }
-
+  function addMovie(
+    movie: SearchMovie,
+  ) {
     if (
-      collaborators.some(
-        (item) => item.username === username,
-      )
+      isMovieSelected(movie.id)
     ) {
       return;
     }
 
-    setCollaborators((current) => [
+    setMovies((current) => [
       ...current,
       {
-        id: crypto.randomUUID(),
-        name: username,
-        username,
+        movieId: movie.id,
+
+        title: movie.title,
+        year: movie.year,
+
+        poster:
+          movie.poster ?? null,
+
+        genre:
+          movie.genre || "Film",
+
+        position: isRanked
+          ? current.length + 1
+          : null,
       },
     ]);
-
-    setCollaboratorInput("");
   }
 
-  function handleSubmit(
+  function removeMovie(
+    movieId: number,
+  ) {
+    setMovies((current) =>
+      current
+        .filter(
+          (movie) =>
+            movie.movieId !==
+            movieId,
+        )
+        .map(
+          (movie, index) => ({
+            ...movie,
+
+            position: isRanked
+              ? index + 1
+              : null,
+          }),
+        ),
+    );
+  }
+
+  function toggleRanked(
+    checked: boolean,
+  ) {
+    setIsRanked(checked);
+
+    setMovies((current) =>
+      current.map(
+        (movie, index) => ({
+          ...movie,
+
+          position: checked
+            ? index + 1
+            : null,
+        }),
+      ),
+    );
+  }
+
+  async function handleSubmit(
     event: React.FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
 
-    const trimmedTitle = title.trim();
+    const trimmedTitle =
+      title.trim();
 
-    if (!trimmedTitle) {
+    if (
+      !trimmedTitle ||
+      isCreating
+    ) {
       return;
     }
 
-    createMovieList({
-      title: trimmedTitle,
-      description: description.trim(),
-      isPublic,
-      isRanked,
-      collaborators: isPublic
-        ? []
-        : collaborators,
-      movies,
-    });
+    setIsCreating(true);
+    setCreateError("");
 
-    setOpen(false);
-    resetForm();
+    try {
+      const created =
+        await createList({
+          title: trimmedTitle,
+
+          description:
+            description.trim(),
+
+          isPublic,
+
+          isRanked,
+
+          movies:
+            movies.map(
+              (
+                movie,
+                index,
+              ) => ({
+                ...movie,
+
+                position: isRanked
+                  ? index + 1
+                  : null,
+              }),
+            ),
+        });
+
+      onCreated?.(created);
+
+      setOpen(false);
+      resetForm();
+    } catch (error) {
+      console.error(
+        "Could not create list:",
+        error,
+      );
+
+      setCreateError(
+        error instanceof Error
+          ? error.message
+          : "Could not create this list.",
+      );
+    } finally {
+      setIsCreating(false);
+    }
   }
 
   return (
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
+        if (isCreating) {
+          return;
+        }
+
         setOpen(nextOpen);
 
         if (!nextOpen) {
@@ -252,12 +379,14 @@ export function CreateListDialog({
             </DialogTitle>
 
             <DialogDescription className="text-white/40">
-              Add details, choose whether it is ranked,
-              and begin adding films immediately.
+              Add details, choose whether
+              the list is ranked, and start
+              adding films.
             </DialogDescription>
           </DialogHeader>
 
           <div className="mt-7 space-y-7">
+            {/* Title */}
             <div>
               <label
                 htmlFor="list-title"
@@ -271,7 +400,10 @@ export function CreateListDialog({
                 value={title}
                 onChange={(event) =>
                   setTitle(
-                    event.target.value.slice(0, 80),
+                    event.target.value.slice(
+                      0,
+                      100,
+                    ),
                   )
                 }
                 placeholder="Films for a rainy night"
@@ -280,20 +412,30 @@ export function CreateListDialog({
               />
             </div>
 
+            {/* Description */}
             <div>
-              <label
-                htmlFor="list-description"
-                className="mb-2 block text-sm font-medium text-white/70"
-              >
-                Description
-              </label>
+              <div className="mb-2 flex items-center justify-between">
+                <label
+                  htmlFor="list-description"
+                  className="text-sm font-medium text-white/70"
+                >
+                  Description
+                </label>
+
+                <span className="text-xs text-white/25">
+                  {description.length}/1000
+                </span>
+              </div>
 
               <Textarea
                 id="list-description"
                 value={description}
                 onChange={(event) =>
                   setDescription(
-                    event.target.value.slice(0, 400),
+                    event.target.value.slice(
+                      0,
+                      1000,
+                    ),
                   )
                 }
                 placeholder="What connects these films?"
@@ -301,6 +443,7 @@ export function CreateListDialog({
               />
             </div>
 
+            {/* Settings */}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex items-center justify-between gap-5 rounded-2xl border border-white/10 bg-black p-4">
                 <div className="flex items-start gap-3">
@@ -316,20 +459,17 @@ export function CreateListDialog({
                     </p>
 
                     <p className="mt-1 text-xs leading-5 text-white/35">
-                      Anyone can view this list later.
+                      Anyone will be able
+                      to view this list.
                     </p>
                   </div>
                 </div>
 
                 <Switch
                   checked={isPublic}
-                  onCheckedChange={(checked) => {
-                    setIsPublic(checked);
-
-                    if (checked) {
-                      setCollaborators([]);
-                    }
-                  }}
+                  onCheckedChange={
+                    setIsPublic
+                  }
                 />
               </div>
 
@@ -349,93 +489,44 @@ export function CreateListDialog({
                     </p>
 
                     <p className="mt-1 text-xs leading-5 text-white/35">
-                      Films will have numbered positions.
+                      Films will keep
+                      numbered positions.
                     </p>
                   </div>
                 </div>
 
                 <Switch
                   checked={isRanked}
-                  onCheckedChange={setIsRanked}
+                  onCheckedChange={
+                    toggleRanked
+                  }
                 />
               </div>
             </div>
 
-            {!isPublic && (
-              <section className="rounded-2xl border border-white/10 bg-black p-4">
-                <div className="flex items-center gap-2">
-                  <UserPlus className="size-4 text-[#9B1738]" />
-
+            {/* Films */}
+            <section className="rounded-2xl border border-white/10 bg-black p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
                   <p className="text-sm font-medium text-white">
-                    Collaborators
+                    Add films
+                  </p>
+
+                  <p className="mt-1 text-xs text-white/35">
+                    You can add or reorder
+                    more films later.
                   </p>
                 </div>
 
-                <p className="mt-2 text-xs leading-5 text-white/35">
-                  Add usernames who may edit this private
-                  list later.
-                </p>
-
-                <div className="mt-4 flex gap-2">
-                  <Input
-                    value={collaboratorInput}
-                    onChange={(event) =>
-                      setCollaboratorInput(
-                        event.target.value,
-                      )
-                    }
-                    placeholder="@username"
-                    className="h-10 border-white/10 bg-[#080808] text-white placeholder:text-white/25"
-                  />
-
-                  <Button
-                    type="button"
-                    onClick={addCollaborator}
-                    disabled={!collaboratorInput.trim()}
-                    className="bg-[#6D001A] text-white hover:bg-[#850522]"
-                  >
-                    Add
-                  </Button>
-                </div>
-
-                {collaborators.length > 0 && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {collaborators.map(
-                      (collaborator) => (
-                        <span
-                          key={collaborator.id}
-                          className="flex items-center gap-2 rounded-full border border-white/10 bg-[#080808] px-3 py-1.5 text-xs text-white/60"
-                        >
-                          @{collaborator.username}
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCollaborators(
-                                (current) =>
-                                  current.filter(
-                                    (item) =>
-                                      item.id !==
-                                      collaborator.id,
-                                  ),
-                              )
-                            }
-                            className="text-white/30 hover:text-white"
-                          >
-                            <X className="size-3" />
-                          </button>
-                        </span>
-                      ),
-                    )}
-                  </div>
+                {movies.length > 0 && (
+                  <span className="text-xs text-white/35">
+                    {movies.length}{" "}
+                    {movies.length === 1
+                      ? "film"
+                      : "films"}
+                  </span>
                 )}
-              </section>
-            )}
-
-            <section className="rounded-2xl border border-white/10 bg-black p-4">
-              <p className="text-sm font-medium text-white">
-                Add films
-              </p>
+              </div>
 
               <div className="relative mt-4">
                 <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-white/30" />
@@ -443,7 +534,9 @@ export function CreateListDialog({
                 <Input
                   value={query}
                   onChange={(event) =>
-                    setQuery(event.target.value)
+                    setQuery(
+                      event.target.value,
+                    )
                   }
                   placeholder="Search movies..."
                   className="h-11 border-white/10 bg-[#080808] pl-11 pr-11 text-white placeholder:text-white/25"
@@ -462,90 +555,148 @@ export function CreateListDialog({
 
               {results.length > 0 && (
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {results.map((movie) => {
-                    const selected = movies.some(
-                      (item) => item.id === movie.id,
-                    );
+                  {results.map(
+                    (movie) => {
+                      const selected =
+                        isMovieSelected(
+                          movie.id,
+                        );
 
-                    return (
-                      <button
-                        key={movie.id}
-                        type="button"
-                        onClick={() =>
-                          selected
-                            ? removeMovie(movie.id)
-                            : addMovie(movie)
-                        }
-                        className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${
-                          selected
-                            ? "border-[#6D001A] bg-[#160006]"
-                            : "border-white/10 bg-[#080808] hover:border-white/20"
-                        }`}
-                      >
-                        <div className="relative aspect-[2/3] w-12 shrink-0 overflow-hidden rounded-lg bg-white/5">
-                          {movie.poster ? (
-                            <Image
-                              src={movie.poster}
-                              alt={`${movie.title} poster`}
-                              fill
-                              className="object-cover"
-                              sizes="48px"
-                            />
-                          ) : (
-                            <div className="flex h-full items-center justify-center text-[9px] text-white/25">
-                              No poster
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-white">
-                            {movie.title}
-                          </p>
-
-                          <p className="mt-1 text-xs text-white/35">
-                            {movie.year} · {movie.genre}
-                          </p>
-                        </div>
-
-                        <span
-                          className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
+                      return (
+                        <button
+                          key={movie.id}
+                          type="button"
+                          onClick={() =>
                             selected
-                              ? "bg-[#6D001A]"
-                              : "border border-white/10"
+                              ? removeMovie(
+                                  movie.id,
+                                )
+                              : addMovie(
+                                  movie,
+                                )
+                          }
+                          className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${
+                            selected
+                              ? "border-[#6D001A] bg-[#160006]"
+                              : "border-white/10 bg-[#080808] hover:border-white/20"
                           }`}
                         >
-                          {selected ? (
-                            <Check className="size-4" />
-                          ) : (
-                            <Plus className="size-4" />
-                          )}
-                        </span>
-                      </button>
-                    );
-                  })}
+                          <div className="relative aspect-[2/3] w-12 shrink-0 overflow-hidden rounded-lg bg-white/5">
+                            {movie.poster ? (
+                              <Image
+                                src={
+                                  movie.poster
+                                }
+                                alt={`${movie.title} poster`}
+                                fill
+                                className="object-cover"
+                                sizes="48px"
+                              />
+                            ) : (
+                              <div className="flex h-full items-center justify-center px-1 text-center text-[9px] text-white/25">
+                                No poster
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-white">
+                              {
+                                movie.title
+                              }
+                            </p>
+
+                            <p className="mt-1 text-xs text-white/35">
+                              {
+                                movie.year
+                              }{" "}
+                              ·{" "}
+                              {
+                                movie.genre
+                              }
+                            </p>
+                          </div>
+
+                          <span
+                            className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
+                              selected
+                                ? "bg-[#6D001A]"
+                                : "border border-white/10"
+                            }`}
+                          >
+                            {selected ? (
+                              <Check className="size-4" />
+                            ) : (
+                              <Plus className="size-4" />
+                            )}
+                          </span>
+                        </button>
+                      );
+                    },
+                  )}
                 </div>
               )}
 
+              {/* Selected movies */}
               {movies.length > 0 && (
-                <div className="mt-5 border-t border-white/10 pt-4">
-                  <p className="text-xs text-white/35">
-                    {movies.length}{" "}
-                    {movies.length === 1
-                      ? "film"
-                      : "films"}{" "}
-                    selected
+                <div className="mt-6 border-t border-white/10 pt-5">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-white/30">
+                    Selected films
                   </p>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {movies.map(
+                      (movie, index) => (
+                        <button
+                          key={
+                            movie.movieId
+                          }
+                          type="button"
+                          onClick={() =>
+                            removeMovie(
+                              movie.movieId,
+                            )
+                          }
+                          className="flex items-center gap-2 rounded-full border border-white/10 bg-[#080808] px-3 py-1.5 text-xs text-white/55 transition hover:border-red-500/30 hover:text-red-300"
+                        >
+                          {isRanked && (
+                            <span className="text-[#9B1738]">
+                              {index + 1}.
+                            </span>
+                          )}
+
+                          <span className="max-w-40 truncate">
+                            {
+                              movie.title
+                            }
+                          </span>
+
+                          <span className="text-white/25">
+                            ×
+                          </span>
+                        </button>
+                      ),
+                    )}
+                  </div>
                 </div>
               )}
             </section>
+
+            {createError && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+                {createError}
+              </div>
+            )}
           </div>
 
           <div className="mt-8 flex justify-end gap-3 border-t border-white/10 pt-5">
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setOpen(false)}
+              disabled={isCreating}
+              onClick={() =>
+                setOpen(false)
+              }
               className="text-white/45 hover:bg-white/5 hover:text-white"
             >
               Cancel
@@ -553,10 +704,19 @@ export function CreateListDialog({
 
             <Button
               type="submit"
-              disabled={!title.trim()}
+              disabled={
+                !title.trim() ||
+                isCreating
+              }
               className="bg-[#6D001A] px-6 text-white hover:bg-[#850522]"
             >
-              Create list
+              {isCreating && (
+                <LoaderCircle className="mr-2 size-4 animate-spin" />
+              )}
+
+              {isCreating
+                ? "Creating..."
+                : "Create list"}
             </Button>
           </div>
         </form>

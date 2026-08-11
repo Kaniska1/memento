@@ -1,29 +1,32 @@
 export type ListMovie = {
-  id: number;
+  movieId: number;
   title: string;
   year: string;
   poster: string | null;
-  rating: number;
   genre: string;
-  position?: number;
+  position?: number | null;
 };
 
 export type ListCollaborator = {
-  id: string;
-  name: string;
+  userId: string;
   username: string;
 };
 
 export type MovieList = {
   id: string;
+
   title: string;
   description: string;
 
   isPublic: boolean;
   isRanked: boolean;
 
-  collaborators: ListCollaborator[];
+  ownerId: string;
+  isOwner: boolean;
+
   movies: ListMovie[];
+
+  collaborators: ListCollaborator[];
 
   createdAt: string;
   updatedAt: string;
