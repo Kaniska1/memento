@@ -4,7 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bookmark,
+  Clapperboard,
   Compass,
+  Eye,
   Home,
   Sparkles,
   UserRound,
@@ -27,6 +29,16 @@ const links = [
     icon: Sparkles,
   },
   {
+    label: "Diary",
+    href: "/diary",
+    icon: Clapperboard,
+  },
+  {
+    label: "Watched",
+    href: "/watched",
+    icon: Eye,
+  },
+  {
     label: "Watchlist",
     href: "/watchlist",
     icon: Bookmark,
@@ -43,7 +55,7 @@ export function MobileNav() {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-black/90 px-3 py-2 backdrop-blur-xl lg:hidden">
-      <div className="grid grid-cols-5">
+      <div className="grid grid-cols-7">
         {links.map((item) => {
           const Icon = item.icon;
           const active =

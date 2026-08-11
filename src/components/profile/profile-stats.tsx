@@ -62,34 +62,26 @@ export function ProfileStats({
 
   return (
     <section>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+  {stats.map((stat) => (
+    <div
+      key={stat.label}
+      className="rounded-2xl border border-white/10 bg-[#080808] p-5"
+    >
+      <div className="flex items-center gap-2 text-white/35">
+        <stat.icon className="size-4" />
 
-          return (
-            <article
-              key={stat.label}
-              className="rounded-2xl border border-white/10 bg-[#080808] p-5"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs text-white/35">
-                    {stat.label}
-                  </p>
-
-                  <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">
-                    {stat.value}
-                  </p>
-                </div>
-
-                <div className="flex size-9 items-center justify-center rounded-xl bg-[#160006] text-[#9B1738]">
-                  <Icon className="size-4" />
-                </div>
-              </div>
-            </article>
-          );
-        })}
+        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-red-700">
+          {stat.label}
+        </p>
       </div>
+
+      <p className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white">
+        {stat.value}
+      </p>
+    </div>
+  ))}
+</div>
     </section>
   );
 }

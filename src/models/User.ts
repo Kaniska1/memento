@@ -32,6 +32,39 @@ const initialRatingSchema = new Schema(
   },
 );
 
+const favouriteMovieSchema = new Schema(
+  {
+    movieId: {
+      type: Number,
+      required: true,
+    },
+
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    year: {
+      type: String,
+      default: "",
+    },
+
+    poster: {
+      type: String,
+      default: null,
+    },
+
+    genre: {
+      type: String,
+      default: "Film",
+    },
+  },
+  {
+    _id: false,
+  },
+);
+
 const userSchema = new Schema(
   {
     name: {
@@ -80,15 +113,26 @@ const userSchema = new Schema(
     favouriteMovieIds: {
       type: [Number],
       default: [],
-      validate: {
-        validator(movieIds: number[]) {
-          return movieIds.length <= 4;
-        },
-        message:
-          "A profile may contain at most four favourite films.",
-      },
     },
 
+    favouriteMovies: {
+      type: [favouriteMovieSchema],
+      default: [],
+
+      validate: {
+        validator(
+          movies: Array<{
+            movieId: number;
+          }>,
+        ) {
+          return movies.length <= 5;
+        },
+
+        message:
+          "You may select up to five favourite films.",
+      },
+    },
+    
     preferredGenreIds: {
       type: [Number],
       default: [],

@@ -12,6 +12,8 @@ const protectedRoutes = [
   "/favourites",
   "/settings",
   "/onboarding",
+  "/watched",
+  "liked",
 ];
 
 const authRoutes = [
@@ -81,5 +83,7 @@ export const config = {
     "/onboarding",
     "/login",
     "/signup",
+    "/watched/:path*",
+    "/liked/:path*",
   ],
 };

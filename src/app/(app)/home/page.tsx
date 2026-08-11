@@ -29,8 +29,6 @@ export default async function HomePage() {
         {/* Hero */}
         <DashboardHero />
 
-        {/* Stats */}
-        <QuickStats />
 
         {/* Trending movies */}
         <MovieRow

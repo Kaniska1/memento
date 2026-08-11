@@ -1,8 +1,9 @@
 export type ProfileFavouriteMovie = {
-  id: number;
+  movieId: number;
   title: string;
   year: string;
   poster: string | null;
+  genre: string;
 };
 
 export type TasteCategory = {

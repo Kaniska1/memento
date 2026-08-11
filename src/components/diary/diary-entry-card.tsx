@@ -104,7 +104,7 @@ export function DiaryEntryCard({
           </Link>
 
           <div className="mt-2 md:hidden">
-            {entry.rating > 0 && (
+            {entry.rating !== null && entry.rating > 0 && (
               <StarRating
                 value={entry.rating}
                 onChange={() => undefined}
@@ -127,7 +127,7 @@ export function DiaryEntryCard({
 
         {/* Rating */}
         <div className="hidden md:block">
-          {entry.rating > 0 ? (
+          {entry.rating !== null && entry.rating > 0 ? (
             <div className="flex items-center gap-2">
               <StarRating
                 value={entry.rating}

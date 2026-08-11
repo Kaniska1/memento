@@ -1,97 +1,186 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import {
   CalendarDays,
   ChevronDown,
   Film,
+  LoaderCircle,
   Search,
 } from "lucide-react";
 
 import { LogFilmDialog } from "@/components/movies/log-film-dialog";
 import { Input } from "@/components/ui/input";
+
 import {
   deleteDiaryEntry,
-  getDiaryEntries,
-} from "@/lib/diary-storage";
+  fetchDiaryEntries,
+} from "@/lib/api/diary";
+
 import { DiaryEntryCard } from "./diary-entry-card";
 
 import type { DiaryEntry } from "@/types/diary";
 
 function getMonthKey(date: string) {
-  const parsedDate = new Date(`${date}T00:00:00`);
+  const parsedDate = new Date(
+    `${date}T00:00:00`,
+  );
 
   return `${parsedDate.getFullYear()}-${parsedDate.getMonth()}`;
 }
 
 export function DiaryClient() {
-  const [entries, setEntries] = useState<DiaryEntry[]>([]);
-  const [query, setQuery] = useState("");
-  const [sortOrder, setSortOrder] = useState<
-    "newest" | "oldest"
-  >("newest");
+  const [entries, setEntries] =
+    useState<DiaryEntry[]>([]);
 
-  const [editingEntry, setEditingEntry] =
-    useState<DiaryEntry | null>(null);
+  const [query, setQuery] =
+    useState("");
 
-  function loadEntries() {
-    setEntries(getDiaryEntries());
-  }
+  const [sortOrder, setSortOrder] =
+    useState<"newest" | "oldest">(
+      "newest",
+    );
+
+  const [
+    editingEntry,
+    setEditingEntry,
+  ] = useState<DiaryEntry | null>(null);
+
+  const [isLoading, setIsLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  const loadEntries =
+    useCallback(async () => {
+      setError("");
+
+      try {
+        const diaryEntries =
+          await fetchDiaryEntries();
+
+        setEntries(diaryEntries);
+      } catch (loadError) {
+        console.error(
+          "Could not load diary:",
+          loadError,
+        );
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load your diary.",
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    }, []);
 
   useEffect(() => {
     loadEntries();
 
+    function handleDiaryUpdate() {
+      loadEntries();
+    }
+
     window.addEventListener(
       "memento:diary-updated",
-      loadEntries,
+      handleDiaryUpdate,
     );
 
     return () => {
       window.removeEventListener(
         "memento:diary-updated",
-        loadEntries,
+        handleDiaryUpdate,
       );
     };
-  }, []);
+  }, [loadEntries]);
 
-  const filteredEntries = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+  const filteredEntries =
+    useMemo(() => {
+      const normalizedQuery =
+        query.trim().toLowerCase();
 
-    const result = entries.filter((entry) =>
-      entry.movieTitle
-        .toLowerCase()
-        .includes(normalizedQuery),
-    );
+      const result = entries.filter(
+        (entry) =>
+          entry.movieTitle
+            .toLowerCase()
+            .includes(
+              normalizedQuery,
+            ),
+      );
 
-    return [...result].sort((a, b) => {
-      const first = new Date(
-        `${a.watchedDate}T00:00:00`,
-      ).getTime();
+      return [...result].sort(
+        (a, b) => {
+          const first =
+            new Date(
+              `${a.watchedDate}T00:00:00`,
+            ).getTime();
 
-      const second = new Date(
-        `${b.watchedDate}T00:00:00`,
-      ).getTime();
+          const second =
+            new Date(
+              `${b.watchedDate}T00:00:00`,
+            ).getTime();
 
-      return sortOrder === "newest"
-        ? second - first
-        : first - second;
-    });
-  }, [entries, query, sortOrder]);
+          return sortOrder ===
+            "newest"
+            ? second - first
+            : first - second;
+        },
+      );
+    }, [
+      entries,
+      query,
+      sortOrder,
+    ]);
 
-  function handleDelete(entryId: string) {
-    const confirmed = window.confirm(
-      "Delete this diary entry?",
-    );
+  async function handleDelete(
+    entryId: string,
+  ) {
+    const confirmed =
+      window.confirm(
+        "Delete this diary entry?",
+      );
 
     if (!confirmed) {
       return;
     }
 
-    deleteDiaryEntry(entryId);
-    loadEntries();
+    try {
+      await deleteDiaryEntry(
+        entryId,
+      );
+
+      setEntries((current) =>
+        current.filter(
+          (entry) =>
+            entry.id !== entryId,
+        ),
+      );
+    } catch (deleteError) {
+      console.error(
+        "Could not delete diary entry:",
+        deleteError,
+      );
+
+      window.alert(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Could not delete this entry.",
+      );
+    }
   }
 
-  function handleEdit(entry: DiaryEntry) {
+  function handleEdit(
+    entry: DiaryEntry,
+  ) {
     setEditingEntry(entry);
   }
 
@@ -110,8 +199,9 @@ export function DiaryClient() {
               </h1>
 
               <p className="mt-4 max-w-xl text-sm leading-7 text-white/40">
-                Every watch, rewatch, rating, and thought—kept in one
-                place.
+                Every watch, rewatch,
+                rating, and thought—kept
+                in one place.
               </p>
             </div>
 
@@ -119,138 +209,255 @@ export function DiaryClient() {
               <CalendarDays className="size-4" />
 
               {entries.length}{" "}
-              {entries.length === 1 ? "entry" : "entries"}
+              {entries.length === 1
+                ? "entry"
+                : "entries"}
             </div>
           </header>
 
           {/* Filters */}
-          <section className="mt-10 rounded-2xl border border-white/10 bg-[#080808] p-4">
-            <div className="grid gap-3 md:grid-cols-[1fr_180px]">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-white/30" />
+          {entries.length > 0 && (
+            <section className="mt-10 rounded-2xl border border-white/10 bg-[#080808] p-4">
+              <div className="grid gap-3 md:grid-cols-[1fr_180px]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-white/30" />
 
-                <Input
-                  value={query}
-                  onChange={(event) =>
-                    setQuery(event.target.value)
-                  }
-                  placeholder="Search your diary..."
-                  className="h-11 border-white/10 bg-black pl-11 text-white placeholder:text-white/25"
-                />
+                  <Input
+                    value={query}
+                    onChange={(event) =>
+                      setQuery(
+                        event.target.value,
+                      )
+                    }
+                    placeholder="Search your diary..."
+                    className="h-11 border-white/10 bg-black pl-11 text-white placeholder:text-white/25"
+                  />
+                </div>
+
+                <label className="relative">
+                  <select
+                    value={sortOrder}
+                    onChange={(event) =>
+                      setSortOrder(
+                        event.target
+                          .value as
+                          | "newest"
+                          | "oldest",
+                      )
+                    }
+                    className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-black px-4 pr-10 text-sm text-white outline-none focus:border-[#6D001A]"
+                  >
+                    <option value="newest">
+                      Newest watches
+                    </option>
+
+                    <option value="oldest">
+                      Oldest watches
+                    </option>
+                  </select>
+
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-white/30" />
+                </label>
               </div>
+            </section>
+          )}
 
-              <label className="relative">
-                <select
-                  value={sortOrder}
-                  onChange={(event) =>
-                    setSortOrder(
-                      event.target.value as
-                        | "newest"
-                        | "oldest",
-                    )
-                  }
-                  className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-black px-4 pr-10 text-sm text-white outline-none focus:border-[#6D001A]"
-                >
-                  <option value="newest">
-                    Newest watches
-                  </option>
+          {/* Loading */}
+          {isLoading && (
+            <div className="mt-10 flex min-h-[400px] items-center justify-center rounded-3xl border border-white/10 bg-[#060606]">
+              <div className="text-center">
+                <LoaderCircle className="mx-auto size-7 animate-spin text-[#8E1231]" />
 
-                  <option value="oldest">
-                    Oldest watches
-                  </option>
-                </select>
-
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-white/30" />
-              </label>
-            </div>
-          </section>
-
-          {/* Column header */}
-          {filteredEntries.length > 0 && (
-            <div className="mt-8 hidden grid-cols-[82px_48px_64px_minmax(220px,1fr)_80px_150px_58px_72px_72px_48px] items-center gap-4 border-b border-white/10 pb-3 text-[10px] font-medium uppercase tracking-[0.14em] text-white/30 md:grid">
-              <span>Month</span>
-              <span>Day</span>
-              <span>Poster</span>
-              <span>Film</span>
-              <span>Released</span>
-              <span>Rating</span>
-              <span className="text-center">Like</span>
-              <span className="text-center">Rewatch</span>
-              <span className="text-center">Review</span>
-              <span className="text-center">Edit</span>
+                <p className="mt-4 text-sm text-white/35">
+                  Opening your diary...
+                </p>
+              </div>
             </div>
           )}
 
-          <div>
-            {entries.length === 0 && (
-              <div className="mt-8 flex min-h-[460px] items-center justify-center rounded-3xl border border-dashed border-white/10 bg-[#060606]">
-                <div className="max-w-md px-6 text-center">
-                  <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-[#160006] text-[#9B1738]">
-                    <Film className="size-6" />
+          {/* Error */}
+          {!isLoading && error && (
+            <div className="mt-10 rounded-3xl border border-red-500/20 bg-red-500/5 px-6 py-14 text-center">
+              <p className="text-sm text-red-300">
+                {error}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLoading(true);
+                  loadEntries();
+                }}
+                className="mt-5 text-sm font-medium text-white hover:text-[#A51636]"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
+          {!isLoading &&
+            !error && (
+              <>
+                {/* Column headers */}
+                {filteredEntries.length >
+                  0 && (
+                  <div className="mt-8 hidden grid-cols-[82px_48px_64px_minmax(220px,1fr)_80px_150px_58px_72px_72px_48px] items-center gap-4 border-b border-white/10 pb-3 text-[10px] font-medium uppercase tracking-[0.14em] text-white/30 md:grid">
+                    <span>
+                      Month
+                    </span>
+
+                    <span>
+                      Day
+                    </span>
+
+                    <span>
+                      Poster
+                    </span>
+
+                    <span>
+                      Film
+                    </span>
+
+                    <span>
+                      Released
+                    </span>
+
+                    <span>
+                      Rating
+                    </span>
+
+                    <span className="text-center">
+                      Like
+                    </span>
+
+                    <span className="text-center">
+                      Rewatch
+                    </span>
+
+                    <span className="text-center">
+                      Review
+                    </span>
+
+                    <span className="text-center">
+                      Edit
+                    </span>
                   </div>
+                )}
 
-                  <h2 className="mt-6 text-2xl font-semibold tracking-[-0.035em] text-white">
-                    Your diary is still unwritten.
-                  </h2>
+                {/* Empty diary */}
+                {entries.length ===
+                  0 && (
+                  <div className="mt-8 flex min-h-[460px] items-center justify-center rounded-3xl border border-dashed border-white/10 bg-[#060606]">
+                    <div className="max-w-md px-6 text-center">
+                      <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-[#160006] text-[#9B1738]">
+                        <Film className="size-6" />
+                      </div>
 
-                  <p className="mt-3 text-sm leading-6 text-white/40">
-                    Open any movie and choose “Log film” to record your
-                    first watch.
-                  </p>
-                </div>
-              </div>
+                      <h2 className="mt-6 text-2xl font-semibold tracking-[-0.035em] text-white">
+                        Your diary is
+                        still unwritten.
+                      </h2>
+
+                      <p className="mt-3 text-sm leading-6 text-white/40">
+                        Open any movie
+                        and choose “Log
+                        film” to record
+                        your first watch.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Search empty */}
+                {entries.length > 0 &&
+                  filteredEntries.length ===
+                    0 && (
+                    <div className="mt-8 rounded-3xl border border-white/10 bg-[#060606] px-6 py-16 text-center">
+                      <p className="text-sm text-white/40">
+                        No diary entries
+                        match “{query}”.
+                      </p>
+                    </div>
+                  )}
+
+                {/* Entries */}
+                {filteredEntries.map(
+                  (
+                    entry,
+                    index,
+                  ) => {
+                    const currentMonth =
+                      getMonthKey(
+                        entry.watchedDate,
+                      );
+
+                    const previousMonth =
+                      index > 0
+                        ? getMonthKey(
+                            filteredEntries[
+                              index - 1
+                            ]
+                              .watchedDate,
+                          )
+                        : null;
+
+                    return (
+                      <DiaryEntryCard
+                        key={
+                          entry.id
+                        }
+                        entry={
+                          entry
+                        }
+                        showMonth={
+                          index ===
+                            0 ||
+                          currentMonth !==
+                            previousMonth
+                        }
+                        onDelete={
+                          handleDelete
+                        }
+                        onEdit={
+                          handleEdit
+                        }
+                      />
+                    );
+                  },
+                )}
+              </>
             )}
-
-            {entries.length > 0 &&
-              filteredEntries.length === 0 && (
-                <div className="mt-8 rounded-3xl border border-white/10 bg-[#060606] px-6 py-16 text-center">
-                  <p className="text-sm text-white/40">
-                    No diary entries match “{query}”.
-                  </p>
-                </div>
-              )}
-
-            {filteredEntries.map((entry, index) => {
-              const currentMonth = getMonthKey(
-                entry.watchedDate,
-              );
-
-              const previousMonth =
-                index > 0
-                  ? getMonthKey(
-                      filteredEntries[index - 1]
-                        .watchedDate,
-                    )
-                  : null;
-
-              return (
-                <DiaryEntryCard
-                  key={entry.id}
-                  entry={entry}
-                  showMonth={
-                    index === 0 ||
-                    currentMonth !== previousMonth
-                  }
-                  onDelete={handleDelete}
-                  onEdit={handleEdit}
-                />
-              );
-            })}
-          </div>
         </div>
       </div>
 
+      {/* Edit dialog */}
       {editingEntry && (
         <LogFilmDialog
-          movieId={editingEntry.movieId}
-          movieTitle={editingEntry.movieTitle}
-          movieYear={editingEntry.movieYear}
-          moviePoster={editingEntry.poster}
-          initialEntry={editingEntry}
-          controlledOpen={Boolean(editingEntry)}
-          onControlledOpenChange={(open) => {
+          movieId={
+            editingEntry.movieId
+          }
+          movieTitle={
+            editingEntry.movieTitle
+          }
+          movieYear={
+            editingEntry.movieYear
+          }
+          moviePoster={
+            editingEntry.poster
+          }
+          initialEntry={
+            editingEntry
+          }
+          controlledOpen={Boolean(
+            editingEntry,
+          )}
+          onControlledOpenChange={(
+            open,
+          ) => {
             if (!open) {
-              setEditingEntry(null);
+              setEditingEntry(
+                null,
+              );
             }
           }}
           onSaved={() => {

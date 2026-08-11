@@ -5,13 +5,13 @@ import {
   CalendarDays,
   Eye,
   Heart,
+  LoaderCircle,
   RotateCcw,
   TriangleAlert,
 } from "lucide-react";
 
 import { StarRating } from "@/components/movies/star-rating";
 import { Button } from "@/components/ui/button";
-import { addNotification } from "@/lib/notification-storage";
 import {
   Dialog,
   DialogContent,
@@ -21,10 +21,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+
 import {
-  addDiaryEntry,
+  createDiaryEntry,
   updateDiaryEntry,
-} from "@/lib/diary-storage";
+} from "@/lib/api/diary";
+
+import { addNotification } from "@/lib/notification-storage";
 
 import type { DiaryEntry } from "@/types/diary";
 
@@ -33,6 +36,7 @@ type LogFilmDialogProps = {
   movieTitle: string;
   movieYear?: string;
   moviePoster?: string | null;
+
   trigger?: React.ReactNode;
 
   initialEntry?: DiaryEntry | null;
@@ -52,14 +56,21 @@ export function LogFilmDialog({
   movieYear,
   moviePoster = null,
   trigger,
+
   initialEntry = null,
   onSaved,
+
   controlledOpen,
   onControlledOpenChange,
 }: LogFilmDialogProps) {
-  const [internalOpen, setInternalOpen] = useState(false);
+  const [internalOpen, setInternalOpen] =
+    useState(false);
 
-  const open = controlledOpen ?? internalOpen;
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  const open =
+    controlledOpen ?? internalOpen;
 
   function setOpen(nextOpen: boolean) {
     if (onControlledOpenChange) {
@@ -70,12 +81,21 @@ export function LogFilmDialog({
     setInternalOpen(nextOpen);
   }
 
-  const [watchedDate, setWatchedDate] = useState(getTodayDate());
+  const [watchedDate, setWatchedDate] =
+    useState(getTodayDate());
+
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState("");
-  const [containsSpoilers, setContainsSpoilers] = useState(false);
-  const [isRewatch, setIsRewatch] = useState(false);
-  const [liked, setLiked] = useState(false);
+  const [
+    containsSpoilers,
+    setContainsSpoilers,
+  ] = useState(false);
+
+  const [isRewatch, setIsRewatch] =
+    useState(false);
+
+  const [liked, setLiked] =
+    useState(false);
 
   function resetForm() {
     setWatchedDate(getTodayDate());
@@ -84,6 +104,7 @@ export function LogFilmDialog({
     setContainsSpoilers(false);
     setIsRewatch(false);
     setLiked(false);
+    setSaveError("");
   }
 
   useEffect(() => {
@@ -91,73 +112,132 @@ export function LogFilmDialog({
       return;
     }
 
+    setSaveError("");
+
     if (initialEntry) {
       setWatchedDate(initialEntry.watchedDate);
-      setRating(initialEntry.rating);
+      setRating(initialEntry.rating ?? 0);
       setReview(initialEntry.review);
-      setContainsSpoilers(initialEntry.containsSpoilers);
+      setContainsSpoilers(
+        initialEntry.containsSpoilers,
+      );
       setIsRewatch(initialEntry.isRewatch);
       setLiked(initialEntry.liked);
+
       return;
     }
 
     resetForm();
   }, [open, initialEntry]);
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
-    const entry: DiaryEntry = {
-      id: initialEntry?.id ?? crypto.randomUUID(),
-      movieId,
-      movieTitle,
-      movieYear,
-      poster: moviePoster,
-      watchedDate,
-      rating,
-      review: review.trim(),
-      containsSpoilers,
-      isRewatch,
-      liked,
-      createdAt:
-        initialEntry?.createdAt ?? new Date().toISOString(),
-    };
+    if (isSaving) {
+      return;
+    }
 
-    if (initialEntry) {
-  updateDiaryEntry(entry);
+    setIsSaving(true);
+    setSaveError("");
 
-  addNotification({
-    type: "diary",
-    title: "Diary entry updated",
-    message: `Your entry for ${movieTitle} was updated.`,
-    href: "/diary",
-  });
-} else {
-  addDiaryEntry(entry);
+    try {
+      if (initialEntry) {
+        await updateDiaryEntry(
+          initialEntry.id,
+          {
+            movieYear,
+            poster: moviePoster,
+            watchedDate,
+            rating:
+              rating > 0
+                ? rating
+                : null,
+            review: review.trim(),
+            containsSpoilers,
+            isRewatch,
+            liked,
+          },
+        );
 
-  addNotification({
-    type: "diary",
-    title: "Film added to your diary",
-    message: `${movieTitle} was logged${
-      isRewatch ? " as a rewatch" : ""
-    }.`,
-    href: "/diary",
-  });
-}
+        addNotification({
+          type: "diary",
+          title: "Diary entry updated",
+          message: `Your entry for ${movieTitle} was updated.`,
+          href: "/diary",
+        });
+      } else {
+        await createDiaryEntry({
+          movieId,
+          movieTitle,
+          movieYear,
+          poster: moviePoster,
 
-    window.dispatchEvent(
-      new CustomEvent("memento:diary-updated"),
-    );
+          watchedDate,
 
-    onSaved?.();
-    setOpen(false);
+          rating:
+            rating > 0
+              ? rating
+              : null,
 
-    if (!initialEntry) {
-      resetForm();
+          review: review.trim(),
+
+          containsSpoilers,
+          isRewatch,
+          liked,
+
+          // API generates the real values.
+        });
+
+        addNotification({
+          type: "diary",
+          title: "Film added to your diary",
+          message: `${movieTitle} was logged${
+            isRewatch
+              ? " as a rewatch"
+              : ""
+          }.`,
+          href: "/diary",
+        });
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "memento:diary-updated",
+        ),
+      );
+
+      onSaved?.();
+
+      setOpen(false);
+
+      if (!initialEntry) {
+        resetForm();
+      }
+    } catch (error) {
+      console.error(
+        "Could not save diary entry:",
+        error,
+      );
+
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "Could not save this diary entry.",
+      );
+    } finally {
+      setIsSaving(false);
     }
   }
 
-  function handleOpenChange(nextOpen: boolean) {
+  function handleOpenChange(
+    nextOpen: boolean,
+  ) {
+    if (isSaving) {
+      return;
+    }
+
     setOpen(nextOpen);
 
     if (!nextOpen && !initialEntry) {
@@ -166,21 +246,25 @@ export function LogFilmDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+    >
       {trigger && (
         <DialogTrigger asChild>
           {trigger}
         </DialogTrigger>
       )}
 
-      {!trigger && controlledOpen === undefined && (
-        <DialogTrigger asChild>
-          <Button className="bg-[#6D001A] text-white hover:bg-[#850522]">
-            <Eye className="mr-2 size-4" />
-            Log film
-          </Button>
-        </DialogTrigger>
-      )}
+      {!trigger &&
+        controlledOpen === undefined && (
+          <DialogTrigger asChild>
+            <Button className="bg-[#6D001A] text-white hover:bg-[#850522]">
+              <Eye className="mr-2 size-4" />
+              Log film
+            </Button>
+          </DialogTrigger>
+        )}
 
       <DialogContent className="max-h-[90vh] overflow-y-auto border-white/10 bg-[#080808] p-0 text-white sm:max-w-2xl">
         <form onSubmit={handleSubmit}>
@@ -201,7 +285,7 @@ export function LogFilmDialog({
           </div>
 
           <div className="space-y-7 px-6 py-6 sm:px-8">
-            {/* Watched date */}
+            {/* Date */}
             <div>
               <label
                 htmlFor="watched-date"
@@ -217,7 +301,9 @@ export function LogFilmDialog({
                 value={watchedDate}
                 max={getTodayDate()}
                 onChange={(event) =>
-                  setWatchedDate(event.target.value)
+                  setWatchedDate(
+                    event.target.value,
+                  )
                 }
                 required
                 className="h-11 w-full rounded-xl border border-white/10 bg-black px-3 text-sm text-white outline-none focus:border-[#6D001A]"
@@ -256,7 +342,7 @@ export function LogFilmDialog({
                 </label>
 
                 <span className="text-xs text-white/25">
-                  {review.length}/1000
+                  {review.length}/5000
                 </span>
               </div>
 
@@ -264,7 +350,12 @@ export function LogFilmDialog({
                 id="review"
                 value={review}
                 onChange={(event) =>
-                  setReview(event.target.value.slice(0, 1000))
+                  setReview(
+                    event.target.value.slice(
+                      0,
+                      5000,
+                    ),
+                  )
                 }
                 placeholder="What did you think? What stayed with you?"
                 className="min-h-36 resize-none border-white/10 bg-black text-white placeholder:text-white/25 focus-visible:border-[#6D001A]"
@@ -277,7 +368,9 @@ export function LogFilmDialog({
                 type="button"
                 aria-pressed={containsSpoilers}
                 onClick={() =>
-                  setContainsSpoilers((current) => !current)
+                  setContainsSpoilers(
+                    (current) => !current,
+                  )
                 }
                 className={`rounded-2xl border p-4 text-left transition ${
                   containsSpoilers
@@ -298,7 +391,8 @@ export function LogFilmDialog({
                 </p>
 
                 <p className="mt-1 text-xs leading-5 text-white/35">
-                  Hide the review until someone chooses to reveal it.
+                  Hide the review until someone
+                  chooses to reveal it.
                 </p>
               </button>
 
@@ -306,7 +400,9 @@ export function LogFilmDialog({
                 type="button"
                 aria-pressed={isRewatch}
                 onClick={() =>
-                  setIsRewatch((current) => !current)
+                  setIsRewatch(
+                    (current) => !current,
+                  )
                 }
                 className={`rounded-2xl border p-4 text-left transition ${
                   isRewatch
@@ -327,7 +423,8 @@ export function LogFilmDialog({
                 </p>
 
                 <p className="mt-1 text-xs leading-5 text-white/35">
-                  Mark this as another viewing rather than your first.
+                  Mark this as another viewing
+                  rather than your first.
                 </p>
               </button>
 
@@ -335,7 +432,9 @@ export function LogFilmDialog({
                 type="button"
                 aria-pressed={liked}
                 onClick={() =>
-                  setLiked((current) => !current)
+                  setLiked(
+                    (current) => !current,
+                  )
                 }
                 className={`rounded-2xl border p-4 text-left transition ${
                   liked
@@ -356,17 +455,27 @@ export function LogFilmDialog({
                 </p>
 
                 <p className="mt-1 text-xs leading-5 text-white/35">
-                  Add it to the films you personally love.
+                  Add it to the films you
+                  personally love.
                 </p>
               </button>
             </div>
+
+            {saveError && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+                {saveError}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-3 border-t border-white/10 px-6 py-5 sm:px-8">
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setOpen(false)}
+              disabled={isSaving}
+              onClick={() =>
+                setOpen(false)
+              }
               className="text-white/45 hover:bg-white/5 hover:text-white"
             >
               Cancel
@@ -374,9 +483,18 @@ export function LogFilmDialog({
 
             <Button
               type="submit"
+              disabled={isSaving}
               className="bg-[#6D001A] px-6 text-white hover:bg-[#850522]"
             >
-              {initialEntry ? "Save changes" : "Save to diary"}
+              {isSaving && (
+                <LoaderCircle className="mr-2 size-4 animate-spin" />
+              )}
+
+              {isSaving
+                ? "Saving..."
+                : initialEntry
+                  ? "Save changes"
+                  : "Save to diary"}
             </Button>
           </div>
         </form>

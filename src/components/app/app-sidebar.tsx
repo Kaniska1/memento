@@ -6,6 +6,7 @@ import {
   Bookmark,
   Clapperboard,
   Compass,
+  Eye,
   Heart,
   Home,
   ListVideo,
@@ -31,14 +32,24 @@ const primaryLinks = [
     icon: Sparkles,
   },
   {
-    label: "Watchlist",
-    href: "/watchlist",
-    icon: Bookmark,
-  },
-  {
     label: "Diary",
     href: "/diary",
     icon: Clapperboard,
+  },
+  {
+    label: "Watched",
+    href: "/watched",
+    icon: Eye,
+  },
+  {
+    label: "Liked",
+    href: "/liked",
+    icon: Heart,
+  },
+  {
+    label: "Watchlist",
+    href: "/watchlist",
+    icon: Bookmark,
   },
   {
     label: "Lists",
@@ -52,11 +63,6 @@ const secondaryLinks = [
     label: "Profile",
     href: "/profile",
     icon: UserRound,
-  },
-  {
-    label: "Favourites",
-    href: "/favourites",
-    icon: Heart,
   },
   {
     label: "Settings",

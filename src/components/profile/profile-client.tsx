@@ -2,14 +2,22 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { EditFavouritesDialog } from "./edit-favourites-dialog";
 import { FavouriteFilms } from "./favourite-films";
 import { ProfileHeader } from "./profile-header";
 import { ProfileStats } from "./profile-stats";
 import { RatingDistribution } from "./rating-distribution";
+import { RecentWatches } from "./recent-watches";
 import { TasteDna } from "./taste-dna";
 
-import { getDiaryEntries } from "@/lib/diary-storage";
-import { getWatchlist } from "@/lib/watchlist-storage";
+import { fetchDiaryEntries } from "@/lib/api/diary";
+import { fetchProfileFavourites } from "@/lib/api/profile-favourites";
+import { fetchWatchlist } from "@/lib/api/watchlist";
+import { fetchWatchedMovies } from "@/lib/api/watched";
+import {
+  getSettings,
+  saveSettings,
+} from "@/lib/settings-storage";
 
 import type { DiaryEntry } from "@/types/diary";
 import type {
@@ -18,15 +26,12 @@ import type {
   TasteCategory,
 } from "@/types/profile";
 import type { StoredOnboardingPreferences } from "@/types/recommendation";
-import type { WatchlistMovie } from "@/types/watchlist";
-import {
-  getSettings,
-  saveSettings,
-} from "@/lib/settings-storage";
 import {
   defaultSettings,
   type MementoSettings,
 } from "@/types/settings";
+import type { WatchedMovie } from "@/types/watched";
+import type { WatchlistMovie } from "@/types/watchlist";
 
 const genreMap: Record<number, string> = {
   28: "Action",
@@ -52,39 +57,59 @@ const genreMap: Record<number, string> = {
 type StoredFavourite = ProfileFavouriteMovie;
 
 export function ProfileClient() {
-  const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>([]);
-  const [watchlist, setWatchlist] = useState<WatchlistMovie[]>([]);
+  const [diaryEntries, setDiaryEntries] =
+    useState<DiaryEntry[]>([]);
+
+  const [watchlist, setWatchlist] =
+    useState<WatchlistMovie[]>([]);
+
   const [preferences, setPreferences] =
     useState<StoredOnboardingPreferences | null>(null);
+
   const [favourites, setFavourites] =
     useState<StoredFavourite[]>([]);
+
   const [settings, setSettings] =
     useState<MementoSettings>(defaultSettings);
 
+  const [watchedMovies, setWatchedMovies] =
+    useState<WatchedMovie[]>([]);
+
   useEffect(() => {
-    setDiaryEntries(getDiaryEntries());
-    setWatchlist(getWatchlist());
     setSettings(getSettings());
 
-    function handleProfileSave(profile: {
-    name: string;
-    username: string;
-    bio: string;
-    }) {
-        const nextSettings: MementoSettings = {
-        ...settings,
-        displayName: profile.name,
-        username: profile.username,
-        bio: profile.bio,
-        };
+    async function loadProfileData() {
+      try {
+        const [
+          diaryData,
+          watchlistData,
+          favouriteData,
+          watchedData,
+        ] = await Promise.all([
+          fetchDiaryEntries(),
+          fetchWatchlist(),
+          fetchProfileFavourites(),
+          fetchWatchedMovies(),
+        ]);
 
-        setSettings(nextSettings);
-        saveSettings(nextSettings);
+        setDiaryEntries(diaryData);
+        setWatchlist(watchlistData);
+        setFavourites(favouriteData);
+        setWatchedMovies(watchedData);
+      } catch (error) {
+        console.error(
+          "Could not load profile data:",
+          error,
+        );
+      }
     }
 
-    const storedPreferences = localStorage.getItem(
-      "memento:onboarding",
-    );
+    loadProfileData();
+
+    const storedPreferences =
+      localStorage.getItem(
+        "memento:onboarding",
+      );
 
     if (storedPreferences) {
       try {
@@ -97,145 +122,176 @@ export function ProfileClient() {
         setPreferences(null);
       }
     }
-
-    const storedFavourites = localStorage.getItem(
-      "memento:favourite-movies",
-    );
-
-    if (storedFavourites) {
-      try {
-        setFavourites(
-          JSON.parse(storedFavourites) as StoredFavourite[],
-        );
-      } catch {
-        setFavourites([]);
-      }
-    }
   }, []);
 
-  const watchedEntries = diaryEntries.filter(
-    (entry) => !entry.isRewatch,
-  );
-
   const averageRating = useMemo(() => {
-    const ratedEntries = diaryEntries.filter(
-      (entry) => entry.rating > 0,
-    );
+    const ratedMovies =
+      watchedMovies.filter(
+        (movie) =>
+          movie.rating !== null &&
+          movie.rating > 0,
+      );
 
-    if (ratedEntries.length === 0) {
+    if (ratedMovies.length === 0) {
       return 0;
     }
 
-    return (
-      ratedEntries.reduce(
-        (sum, entry) => sum + entry.rating,
-        0,
-      ) / ratedEntries.length
-    );
-  }, [diaryEntries]);
-
-  const ratingDistribution = useMemo<RatingDistributionItem[]>(() => {
-    const values = [
-      0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5,
-    ];
-
-    return values.map((rating) => ({
-      rating,
-      count: diaryEntries.filter(
-        (entry) => entry.rating === rating,
-      ).length,
-    }));
-  }, [diaryEntries]);
-
-  const tasteDna = useMemo<TasteCategory[]>(() => {
-    const selectedGenres =
-      preferences?.preferredGenreIds ?? [];
-
-    if (selectedGenres.length === 0) {
-      return [
-        {
-          label: "Still discovering",
-          percentage: 100,
-        },
-      ];
-    }
-
-    const weights = selectedGenres.map((genreId, index) => ({
-      label: genreMap[genreId] || "Film",
-      score: Math.max(30 - index * 4, 10),
-    }));
-
-    const totalScore = weights.reduce(
-      (sum, item) => sum + item.score,
+    const total = ratedMovies.reduce(
+      (sum, movie) =>
+        sum + (movie.rating ?? 0),
       0,
     );
 
-    return weights.slice(0, 5).map((item) => ({
-      label: item.label,
-      percentage: Math.round(
-        (item.score / totalScore) * 100,
-      ),
-    }));
-  }, [preferences]);
+    return total / ratedMovies.length;
+  }, [watchedMovies]);
+
+  const likedWatchedMovies =
+    watchedMovies.filter(
+      (movie) => movie.liked,
+    ).length;
+
+  const ratingDistribution =
+    useMemo<RatingDistributionItem[]>(() => {
+      const values = [
+        0.5,
+        1,
+        1.5,
+        2,
+        2.5,
+        3,
+        3.5,
+        4,
+        4.5,
+        5,
+      ];
+
+      return values.map((rating) => ({
+        rating,
+
+        count: watchedMovies.filter(
+          (movie) =>
+            movie.rating === rating,
+        ).length,
+      }));
+    }, [watchedMovies]);
+
+  const tasteDna =
+    useMemo<TasteCategory[]>(() => {
+      const selectedGenres =
+        preferences?.preferredGenreIds ?? [];
+
+      if (selectedGenres.length === 0) {
+        return [
+          {
+            label: "Still discovering",
+            percentage: 100,
+          },
+        ];
+      }
+
+      const weights = selectedGenres.map(
+        (genreId, index) => ({
+          label:
+            genreMap[genreId] || "Film",
+
+          score: Math.max(
+            30 - index * 4,
+            10,
+          ),
+        }),
+      );
+
+      const totalScore = weights.reduce(
+        (sum, item) =>
+          sum + item.score,
+        0,
+      );
+
+      return weights
+        .slice(0, 5)
+        .map((item) => ({
+          label: item.label,
+
+          percentage: Math.round(
+            (item.score /
+              totalScore) *
+              100,
+          ),
+        }));
+    }, [preferences]);
 
   const estimatedHours = Math.round(
     diaryEntries.length * 2,
   );
 
-    function handleProfileSave(profile: {
-  name: string;
-  username: string;
-  bio: string;
-}) {
-  const nextSettings: MementoSettings = {
-    ...settings,
-    displayName: profile.name,
-    username: profile.username,
-    bio: profile.bio,
-  };
+  function handleProfileSave(profile: {
+    name: string;
+    username: string;
+    bio: string;
+  }) {
+    const nextSettings: MementoSettings = {
+      ...settings,
 
-  setSettings(nextSettings);
-  saveSettings(nextSettings);
-}
+      displayName: profile.name,
+      username: profile.username,
+      bio: profile.bio,
+    };
 
-  return (
-    <div className="px-5 py-8 sm:px-8 lg:py-10">
-      <div className="mx-auto max-w-[1500px] space-y-10">
-        <ProfileHeader
-            name={settings.displayName}
-            username={settings.username}
-            bio={settings.bio}
-            joinedAt="2026-08-01"
-            onSave={handleProfileSave}
-        />
+    setSettings(nextSettings);
+    saveSettings(nextSettings);
+  }
 
-        <ProfileStats
-          filmsWatched={watchedEntries.length}
-          hoursWatched={estimatedHours}
-          averageRating={averageRating}
-          rewatchCount={
-            diaryEntries.filter(
-              (entry) => entry.isRewatch,
-            ).length
-          }
-          likedCount={
-            diaryEntries.filter((entry) => entry.liked)
-              .length
-          }
-          watchlistCount={watchlist.length}
-        />
+    return (
+  <div className="px-5 py-8 sm:px-8 lg:py-10">
+    <div className="mx-auto max-w-[1500px] space-y-10">
+      {/* PROFILE HEADER */}
+      <ProfileHeader
+        name={settings.displayName}
+        username={settings.username}
+        bio={settings.bio}
+        joinedAt="2026-08-01"
+        onSave={handleProfileSave}
+      />
 
-        <div className="grid gap-8 xl:grid-cols-[1.05fr_0.95fr]">
-          <TasteDna categories={tasteDna} />
+      {/* MAIN PROFILE CONTENT */}
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.7fr)] xl:items-start">
+        {/* LEFT COLUMN */}
+        <div className="space-y-10">
+          <ProfileStats
+            filmsWatched={watchedMovies.length}
+            hoursWatched={estimatedHours}
+            averageRating={averageRating}
+            rewatchCount={
+              diaryEntries.filter(
+                (entry) => entry.isRewatch,
+              ).length
+            }
+            likedCount={likedWatchedMovies}
+            watchlistCount={watchlist.length}
+          />
+
+          <RecentWatches
+            movies={diaryEntries.slice(0, 5)}
+          />
+
+          <FavouriteFilms
+            movies={favourites}
+            onUpdated={setFavourites}
+          />
+        </div>
+
+        {/* RIGHT COLUMN */}
+        <aside className="space-y-6 xl:sticky xl:top-24">
+          <TasteDna
+            categories={tasteDna}
+          />
 
           <RatingDistribution
             distribution={ratingDistribution}
           />
-        </div>
-
-        <FavouriteFilms movies={favourites} />
+        </aside>
       </div>
     </div>
-  );
+  </div>
+);
 }
-

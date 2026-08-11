@@ -1,4 +1,4 @@
-export type WatchlistMovie = {
+export type LikedMovie = {
   id: string;
   movieId: number;
 
@@ -10,7 +10,8 @@ export type WatchlistMovie = {
   rating: number | null;
 
   watched: boolean;
-  liked: boolean;
+  watchlisted: boolean;
 
-  addedAt: string;
+  lastWatchedAt: string | null;
+  likedAt: string;
 };

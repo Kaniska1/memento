@@ -13,7 +13,7 @@ export function DashboardHero() {
           <Sparkles className="size-4" />
 
           <p className="text-xs font-medium uppercase tracking-[0.2em]">
-            Your taste profile is ready
+            You know the movies, we know the formula.
           </p>
         </div>
 
@@ -21,7 +21,7 @@ export function DashboardHero() {
           Welcome to your
           <br />
           <span className="bg-gradient-to-b from-[#A92A49] to-[#43000F] bg-clip-text text-transparent">
-            personal cinema.
+            own Criterion Closet.
           </span>
         </h1>
 
