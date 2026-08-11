@@ -110,28 +110,24 @@ const userSchema = new Schema(
       default: null,
     },
 
-    favouriteMovieIds: {
-      type: [Number],
-      default: [],
-    },
 
     favouriteMovies: {
-      type: [favouriteMovieSchema],
-      default: [],
+  type: [favouriteMovieSchema],
+  default: [],
 
-      validate: {
-        validator(
-          movies: Array<{
-            movieId: number;
-          }>,
-        ) {
-          return movies.length <= 5;
-        },
-
-        message:
-          "You may select up to five favourite films.",
-      },
+  validate: {
+    validator(
+      movies: Array<{
+        movieId: number;
+      }>,
+    ) {
+      return movies.length <= 5;
     },
+
+    message:
+      "You may select up to five favourite films.",
+  },
+},
     
     preferredGenreIds: {
       type: [Number],

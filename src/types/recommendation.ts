@@ -1,3 +1,5 @@
+import { InitialRating } from "./onboarding";
+
 export type RecommendedMovie = {
   id: number;
   title: string;
@@ -13,10 +15,14 @@ export type RecommendedMovie = {
 };
 
 export type StoredOnboardingPreferences = {
-  favouriteMovieIds: number[];
-  preferredGenreIds: number[];
-  initialRatings: {
+  favouriteMovies: {
     movieId: number;
-    rating: number;
+    title: string;
+    year: string;
+    poster: string | null;
+    genre: string;
   }[];
+
+  preferredGenreIds: number[];
+  initialRatings: InitialRating[];
 };

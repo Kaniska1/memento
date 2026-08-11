@@ -9,13 +9,15 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const currentUser = await getCurrentUser();
+    const currentUser =
+      await getCurrentUser();
 
     if (!currentUser) {
       return NextResponse.json(
         {
           success: false,
-          message: "You are not authenticated.",
+          message:
+            "You are not authenticated.",
         },
         {
           status: 401,
@@ -23,16 +25,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const body: unknown = await request.json();
+    const body: unknown =
+      await request.json();
 
-    const parsed = onboardingSchema.safeParse(body);
+    const parsed =
+      onboardingSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid onboarding data.",
-          errors: parsed.error.flatten().fieldErrors,
+          message:
+            "Invalid onboarding data.",
+          errors:
+            parsed.error.flatten()
+              .fieldErrors,
         },
         {
           status: 400,
@@ -43,34 +50,36 @@ export async function POST(request: Request) {
     await connectDB();
 
     const {
-      favouriteMovieIds,
+      favouriteMovies,
       preferredGenreIds,
       initialRatings,
     } = parsed.data;
 
-    const user = await User.findByIdAndUpdate(
-      currentUser.id,
-      {
-        $set: {
-          favouriteMovieIds,
-          preferredGenreIds,
-          initialRatings,
-          onboardingCompleted: true,
+    const user =
+      await User.findByIdAndUpdate(
+        currentUser.id,
+        {
+          $set: {
+            favouriteMovies,
+            preferredGenreIds,
+            initialRatings,
+            onboardingCompleted: true,
+          },
         },
-      },
-      {
-        new: true,
-        runValidators: true,
-      },
-    ).select(
-      "favouriteMovieIds preferredGenreIds initialRatings onboardingCompleted",
-    );
+        {
+          new: true,
+          runValidators: true,
+        },
+      ).select(
+        "favouriteMovies preferredGenreIds initialRatings onboardingCompleted",
+      );
 
     if (!user) {
       return NextResponse.json(
         {
           success: false,
-          message: "User could not be found.",
+          message:
+            "User could not be found.",
         },
         {
           status: 404,
@@ -80,17 +89,26 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: "Taste profile created successfully.",
+
       onboarding: {
-        favouriteMovieIds: user.favouriteMovieIds,
-        preferredGenreIds: user.preferredGenreIds,
-        initialRatings: user.initialRatings,
+        favouriteMovies:
+          user.favouriteMovies,
+
+        preferredGenreIds:
+          user.preferredGenreIds,
+
+        initialRatings:
+          user.initialRatings,
+
         onboardingCompleted:
           user.onboardingCompleted,
       },
     });
   } catch (error) {
-    console.error("Could not save onboarding:", error);
+    console.error(
+      "Could not save onboarding:",
+      error,
+    );
 
     return NextResponse.json(
       {
@@ -127,7 +145,7 @@ export async function GET() {
       currentUser.id,
     )
       .select(
-        "favouriteMovieIds preferredGenreIds initialRatings onboardingCompleted",
+        "favouriteMovies preferredGenreIds initialRatings onboardingCompleted",
       )
       .lean();
 
@@ -144,18 +162,22 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      success: true,
-      onboarding: {
-        favouriteMovieIds:
-          user.favouriteMovieIds,
-        preferredGenreIds:
-          user.preferredGenreIds,
-        initialRatings:
-          user.initialRatings,
-        onboardingCompleted:
-          user.onboardingCompleted,
-      },
-    });
+  success: true,
+
+  onboarding: {
+    favouriteMovies:
+      user.favouriteMovies ?? [],
+
+    preferredGenreIds:
+      user.preferredGenreIds ?? [],
+
+    initialRatings:
+      user.initialRatings ?? [],
+
+    onboardingCompleted:
+      user.onboardingCompleted,
+  },
+});
   } catch (error) {
     console.error(
       "Could not load onboarding:",

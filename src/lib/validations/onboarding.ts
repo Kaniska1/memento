@@ -1,5 +1,35 @@
 import { z } from "zod";
 
+const favouriteMovieSchema = z.object({
+  movieId: z.number().int().positive(),
+
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(300),
+
+  year: z
+    .string()
+    .trim()
+    .max(10)
+    .optional()
+    .default(""),
+
+  poster: z
+    .string()
+    .nullable()
+    .optional()
+    .default(null),
+
+  genre: z
+    .string()
+    .trim()
+    .max(100)
+    .optional()
+    .default("Film"),
+});
+
 const ratingSchema = z.object({
   movieId: z.number().int().positive(),
 
@@ -14,17 +44,27 @@ const ratingSchema = z.object({
 });
 
 export const onboardingSchema = z.object({
-  favouriteMovieIds: z
-    .array(z.number().int().positive())
-    .length(4, "Choose exactly four favourite films."),
+  favouriteMovies: z
+    .array(favouriteMovieSchema)
+    .min(
+      1,
+      "Choose at least one favourite film.",
+    )
+    .max(
+      5,
+      "Choose up to five favourite films.",
+    ),
 
   preferredGenreIds: z
     .array(z.number().int().positive())
-    .min(3, "Choose at least three genres."),
+    .min(
+      1,
+      "Choose at least one genre.",
+    ),
 
   initialRatings: z
     .array(ratingSchema)
-    .min(3, "Rate at least three films."),
+    .max(30),
 });
 
 export type OnboardingInput = z.infer<

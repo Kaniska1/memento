@@ -5,6 +5,7 @@ export type OnboardingMovie = {
   poster: string | null;
   overview?: string;
   genreIds: number[];
+  genre?: string;
 };
 
 export type InitialRating = {

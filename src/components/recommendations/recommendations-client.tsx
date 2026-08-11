@@ -66,7 +66,9 @@ export function RecommendationsClient() {
       try {
         const params = new URLSearchParams({
           favourites:
-            preferences?.favouriteMovieIds.join(",") ?? "",
+            preferences?.favouriteMovies
+  .map((movie) => movie.movieId)
+  .join(",") ?? "",
           genres:
             preferences?.preferredGenreIds.join(",") ?? "",
         });

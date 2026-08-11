@@ -17,7 +17,6 @@ import { OnboardingProgress } from "./onboarding-progress";
 import type {
   InitialRating,
   OnboardingMovie,
-  OnboardingMoviesResponse,
 } from "@/types/onboarding";
 
 export function OnboardingFlow() {
@@ -40,36 +39,30 @@ export function OnboardingFlow() {
 
     const controller = new AbortController();
 
-    async function loadRatingMovies() {
+    async function loadMovies() {
       setIsLoadingMovies(true);
       setMovieLoadError("");
 
       try {
+        const genreQuery = selectedGenres.join("|");
+
         const response = await fetch(
-          `/api/tmdb/onboarding-movies?genres=${selectedGenres.join(",")}`,
+          `/api/onboarding/movies?genres=${encodeURIComponent(genreQuery)}`,
           {
             signal: controller.signal,
           },
         );
 
-        const data =
-          (await response.json()) as OnboardingMoviesResponse;
+        const data = (await response.json()) as {
+          movies?: OnboardingMovie[];
+          message?: string;
+        };
 
         if (!response.ok) {
-          throw new Error(
-            data.message || "Could not load movies for your genres.",
-          );
+          throw new Error(data.message || "Could not load movies.");
         }
 
-        const favouriteIds = new Set(
-          favourites.map((movie) => movie.id),
-        );
-
-        const uniqueMovies = data.results.filter(
-          (movie) => !favouriteIds.has(movie.id),
-        );
-
-        setRatingMovies(uniqueMovies.slice(0, 10));
+        setRatingMovies(data.movies ?? []);
       } catch (error) {
         if (
           error instanceof DOMException &&
@@ -90,19 +83,20 @@ export function OnboardingFlow() {
       }
     }
 
-    loadRatingMovies();
+    loadMovies();
 
     return () => {
       controller.abort();
     };
-  }, [step, selectedGenres, favourites]);
+  }, [step, selectedGenres]);
 
   const canContinue =
-    step === 1
-      ? favourites.length === 4
-      : step === 2
-        ? selectedGenres.length >= 3
-        : ratings.length >= 5;
+  step === 1
+    ? favourites.length >= 1 &&
+      favourites.length <= 5
+    : step === 2
+      ? selectedGenres.length >= 1
+      : true;
 
   async function continueFlow() {
   if (!canContinue) {
@@ -115,9 +109,13 @@ export function OnboardingFlow() {
   }
 
   const preferences = {
-    favouriteMovieIds: favourites.map(
-      (movie) => movie.id,
-    ),
+    favouriteMovies: favourites.map((movie) => ({
+      movieId: movie.id,
+      title: movie.title,
+      year: movie.year,
+      poster: movie.poster,
+      genre: movie.genre ?? "Film",
+    })),
     preferredGenreIds: selectedGenres,
     initialRatings: ratings,
   };
@@ -179,14 +177,6 @@ export function OnboardingFlow() {
   }
 }
 
-  function retryMovieLoad() {
-    setStep(2);
-
-    window.setTimeout(() => {
-      setStep(3);
-    }, 0);
-  }
-
   return (
     <main className="min-h-screen bg-black px-6 py-10">
       <div className="mx-auto max-w-5xl">
@@ -217,12 +207,17 @@ export function OnboardingFlow() {
                 </p>
 
                 <h1 className="mt-4 text-4xl font-semibold tracking-[-0.045em] text-white md:text-6xl">
-                  Choose four favourites.
+                  Choose your favourites.
                 </h1>
 
                 <p className="mt-4 text-white/45">
-                  Search for four films that best represent your taste.
-                </p>
+  Pick up to five films that best represent
+  your taste. You can change these anytime.
+</p>
+
+                <p className="mt-3 text-xs text-white/30">
+  {favourites.length}/5 selected
+</p>
 
                 <div className="mt-10">
                   <FavouritePicker
@@ -264,63 +259,29 @@ export function OnboardingFlow() {
                 </p>
 
                 <h1 className="mt-4 text-4xl font-semibold tracking-[-0.045em] text-white md:text-6xl">
-                  Rate what you remember.
+                  Rate what you&apos;ve seen.
                 </h1>
 
-                <p className="mt-4 max-w-2xl text-sm leading-6 text-white/45">
-                  Rate at least five films you have seen. Leave unfamiliar
-                  titles blank. These ratings will help build your first
-                  recommendation profile.
+                <p className="mt-4 max-w-xl text-white/45">
+                  These are popular films from the genres you chose. Rate any you&apos;ve already watched and skip the rest.
                 </p>
 
                 <div className="mt-10">
-                  {isLoadingMovies && (
-                    <div className="flex min-h-72 items-center justify-center rounded-2xl border border-white/10 bg-[#080808]">
-                      <div className="text-center">
-                        <LoaderCircle className="mx-auto size-6 animate-spin text-[#8E1231]" />
-
-                        <p className="mt-4 text-sm text-white/40">
-                          Finding familiar films from your genres...
-                        </p>
-                      </div>
+                  {isLoadingMovies ? (
+                    <div className="flex min-h-64 items-center justify-center">
+                      <LoaderCircle className="size-6 animate-spin text-[#8E1231]" />
                     </div>
-                  )}
-
-                  {movieLoadError && !isLoadingMovies && (
-                    <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-6">
-                      <p className="text-sm text-red-300">
-                        {movieLoadError}
-                      </p>
-
-                      <button
-                        type="button"
-                        onClick={retryMovieLoad}
-                        className="mt-4 text-sm font-medium text-white underline underline-offset-4"
-                      >
-                        Try again
-                      </button>
+                  ) : movieLoadError ? (
+                    <div className="rounded-2xl border border-red-500/20 bg-red-500/5 px-5 py-4 text-sm text-red-300">
+                      {movieLoadError}
                     </div>
+                  ) : (
+                    <InitialRatings
+                      movies={ratingMovies}
+                      ratings={ratings}
+                      onChange={setRatings}
+                    />
                   )}
-
-                  {!isLoadingMovies &&
-                    !movieLoadError &&
-                    ratingMovies.length > 0 && (
-                      <InitialRatings
-                        movies={ratingMovies}
-                        ratings={ratings}
-                        onChange={setRatings}
-                      />
-                    )}
-
-                  {!isLoadingMovies &&
-                    !movieLoadError &&
-                    ratingMovies.length === 0 && (
-                      <div className="rounded-2xl border border-white/10 bg-[#080808] p-8 text-center">
-                        <p className="text-sm text-white/40">
-                          No suitable films were found for those genres.
-                        </p>
-                      </div>
-                    )}
                 </div>
               </>
             )}
