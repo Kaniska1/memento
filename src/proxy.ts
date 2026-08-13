@@ -13,7 +13,7 @@ const protectedRoutes = [
   "/settings",
   "/onboarding",
   "/watched",
-  "liked",
+  "/liked",
 ];
 
 const authRoutes = [
@@ -32,37 +32,73 @@ function matchesRoute(
   );
 }
 
-export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+export function proxy(
+  request: NextRequest,
+) {
+  const { pathname } =
+    request.nextUrl;
 
   const hasSessionCookie = Boolean(
-    request.cookies.get("memento_session")?.value,
+    request.cookies.get(
+      "memento_session",
+    )?.value,
   );
 
-  const isProtectedRoute = matchesRoute(
-    pathname,
-    protectedRoutes,
-  );
+  const isProtectedRoute =
+    matchesRoute(
+      pathname,
+      protectedRoutes,
+    );
 
-  const isAuthRoute = matchesRoute(
-    pathname,
-    authRoutes,
-  );
+  const isAuthRoute =
+    matchesRoute(
+      pathname,
+      authRoutes,
+    );
 
-  if (isProtectedRoute && !hasSessionCookie) {
-    const loginUrl = new URL("/login", request.url);
+  /*
+   * Logged-out user attempts to access
+   * a protected page.
+   *
+   * Example:
+   *
+   * /lists/123
+   *      ↓
+   * /login?next=/lists/123
+   */
+  if (
+    isProtectedRoute &&
+    !hasSessionCookie
+  ) {
+    const loginUrl =
+      new URL(
+        "/login",
+        request.url,
+      );
 
     loginUrl.searchParams.set(
       "next",
       `${pathname}${request.nextUrl.search}`,
     );
 
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(
+      loginUrl,
+    );
   }
 
-  if (isAuthRoute && hasSessionCookie) {
+  /*
+   * Already authenticated users don't
+   * need login/signup pages.
+   */
+  if (
+    isAuthRoute &&
+    hasSessionCookie
+  ) {
     return NextResponse.redirect(
-      new URL("/home", request.url),
+      new URL(
+        "/home",
+        request.url,
+      ),
     );
   }
 
@@ -80,10 +116,11 @@ export const config = {
     "/profile/:path*",
     "/favourites/:path*",
     "/settings/:path*",
-    "/onboarding",
-    "/login",
-    "/signup",
+    "/onboarding/:path*",
     "/watched/:path*",
     "/liked/:path*",
+
+    "/login",
+    "/signup",
   ],
 };

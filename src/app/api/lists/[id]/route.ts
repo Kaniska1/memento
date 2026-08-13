@@ -65,6 +65,10 @@ export async function PATCH(
           success: false,
           message:
             "Invalid list update.",
+
+          errors:
+            parsed.error.flatten()
+              .fieldErrors,
         },
         {
           status: 400,
@@ -74,6 +78,10 @@ export async function PATCH(
 
     await connectDB();
 
+    /*
+     * Both owner and collaborators can
+     * access the list for editing.
+     */
     const existing =
       await MovieList.findOne({
         _id: id,
@@ -108,75 +116,105 @@ export async function PATCH(
       existing.ownerId.toString() ===
       currentUser.id;
 
+    /*
+     * Owner-only properties.
+     */
     if (isOwner) {
-  if (
-    parsed.data.title !==
-    undefined
-  ) {
-    existing.title =
-      parsed.data.title;
-  }
+      if (
+        parsed.data.title !==
+        undefined
+      ) {
+        existing.title =
+          parsed.data.title;
+      }
 
-  if (
-    parsed.data.description !==
-    undefined
-  ) {
-    existing.description =
-      parsed.data.description;
-  }
+      if (
+        parsed.data.description !==
+        undefined
+      ) {
+        existing.description =
+          parsed.data.description;
+      }
 
-  if (
-    parsed.data.isPublic !==
-    undefined
-  ) {
-    existing.isPublic =
-      parsed.data.isPublic;
-  }
+      if (
+        parsed.data.isPublic !==
+        undefined
+      ) {
+        existing.isPublic =
+          parsed.data.isPublic;
 
-  if (
-    parsed.data.isRanked !==
-    undefined
-  ) {
-    existing.isRanked =
-      parsed.data.isRanked;
+        /*
+         * Public lists are owner-edited.
+         * Remove private collaborators
+         * when the owner makes it public.
+         */
+        if (
+          parsed.data.isPublic
+        ) {
+          existing.set(
+            "collaborators",
+            [],
+          );
+        }
+      }
 
-    existing.movies.forEach(
-      (movie, index) => {
-        movie.position =
-          parsed.data.isRanked
-            ? index + 1
-            : null;
-      },
-    );
-  }
-}
+      if (
+        parsed.data.isRanked !==
+        undefined
+      ) {
+        existing.isRanked =
+          parsed.data.isRanked;
 
+        existing.movies.forEach(
+          (movie, index) => {
+            movie.position =
+              parsed.data.isRanked
+                ? index + 1
+                : null;
+          },
+        );
+      }
+    }
+
+    /*
+     * Owner and collaborators may edit
+     * the films in the list.
+     */
     if (
-  parsed.data.movies !== undefined
-) {
-  const normalizedMovies =
-    parsed.data.movies.map(
-      (movie, index) => ({
-        movieId: movie.movieId,
-        title: movie.title,
-        year: movie.year ?? "",
-        poster:
-          movie.poster ?? null,
-        genre:
-          movie.genre ?? "Film",
+      parsed.data.movies !==
+      undefined
+    ) {
+      const normalizedMovies =
+        parsed.data.movies.map(
+          (movie, index) => ({
+            movieId:
+              movie.movieId,
 
-        position:
-          existing.isRanked
-            ? index + 1
-            : null,
-      }),
-    );
+            title:
+              movie.title,
 
-  existing.set(
-    "movies",
-    normalizedMovies,
-  );
-}
+            year:
+              movie.year ?? "",
+
+            poster:
+              movie.poster ?? null,
+
+            genre:
+              movie.genre ?? "Film",
+
+            position:
+              existing.isRanked
+                ? index + 1
+                : null,
+          }),
+        );
+
+      existing.set(
+        "movies",
+        normalizedMovies,
+      );
+    }
+
     await existing.save();
 
     return NextResponse.json({
@@ -201,6 +239,11 @@ export async function PATCH(
         isRanked:
           existing.isRanked,
 
+        ownerId:
+          existing.ownerId.toString(),
+
+        isOwner,
+
         movies:
           existing.movies,
 
@@ -214,6 +257,9 @@ export async function PATCH(
                 collaborator.username,
             }),
           ),
+
+        createdAt:
+          existing.createdAt,
 
         updatedAt:
           existing.updatedAt,
@@ -279,6 +325,9 @@ export async function DELETE(
 
     await connectDB();
 
+    /*
+     * Only the owner can delete.
+     */
     const deleted =
       await MovieList.findOneAndDelete({
         _id: id,
@@ -300,6 +349,7 @@ export async function DELETE(
 
     return NextResponse.json({
       success: true,
+
       message:
         "List deleted successfully.",
     });

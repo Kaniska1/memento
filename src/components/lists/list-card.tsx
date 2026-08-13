@@ -1,13 +1,15 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
+
 import {
   Film,
   Globe2,
   Lock,
-  MoreHorizontal,
   Pencil,
   Trash2,
+  Users,
 } from "lucide-react";
 
 import type { MovieList } from "@/types/list";
@@ -23,22 +25,29 @@ export function ListCard({
   onOpen,
   onDelete,
 }: ListCardProps) {
-  const previewMovies = list.movies.slice(0, 4);
+  const previewMovies =
+    list.movies.slice(0, 4);
 
   return (
     <article className="group overflow-hidden rounded-3xl border border-white/10 bg-[#080808] transition-colors hover:border-white/20">
-      <button
-        type="button"
-        onClick={() => onOpen(list)}
-        className="block w-full text-left"
+      {/* Preview opens the list page */}
+      <Link
+        href={`/lists/${list.id}`}
+        className="block"
       >
-        <div className="grid aspect-[16/9] grid-cols-4 overflow-hidden bg-[#0A0A0A]">
-          {Array.from({ length: 4 }).map((_, index) => {
-            const movie = previewMovies[index];
+        <div className="relative grid aspect-[16/9] grid-cols-4 overflow-hidden bg-[#0A0A0A]">
+          {Array.from({
+            length: 4,
+          }).map((_, index) => {
+            const movie =
+              previewMovies[index];
 
             return (
               <div
-                key={movie?.id ?? `empty-${index}`}
+                key={`${
+                  movie?.movieId ??
+                  "empty"
+                }-${index}`}
                 className="relative border-r border-black last:border-r-0"
               >
                 {movie?.poster ? (
@@ -46,7 +55,7 @@ export function ListCard({
                     src={movie.poster}
                     alt={`${movie.title} poster`}
                     fill
-                    className="object-cover"
+                    className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                     sizes="180px"
                   />
                 ) : (
@@ -60,38 +69,34 @@ export function ListCard({
 
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 to-transparent" />
         </div>
-      </button>
+      </Link>
 
       <div className="p-5">
         <div className="flex items-start justify-between gap-4">
-          <button
-            type="button"
-            onClick={() => onOpen(list)}
-            className="min-w-0 text-left"
-          >
-            <h2 className="truncate text-xl font-semibold tracking-[-0.03em] text-white transition-colors group-hover:text-[#A51636]">
-              {list.title}
-            </h2>
+          <div className="min-w-0 flex-1">
+            <Link
+              href={`/lists/${list.id}`}
+              className="block"
+            >
+              <h2 className="truncate text-xl font-semibold tracking-[-0.03em] text-white transition-colors group-hover:text-[#A51636]">
+                {list.title}
+              </h2>
 
-            <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-white/40">
-              {list.description || "No description yet."}
-            </p>
-          </button>
-
-          <button
-            type="button"
-            className="shrink-0 text-white/25 transition-colors hover:text-white"
-            aria-label={`More options for ${list.title}`}
-          >
-            <MoreHorizontal className="size-5" />
-          </button>
+              <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-white/40">
+                {list.description ||
+                  "No description yet."}
+              </p>
+            </Link>
+          </div>
         </div>
 
         <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4">
-          <div className="flex items-center gap-3 text-xs text-white/35">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-white/35">
             <span>
               {list.movies.length}{" "}
-              {list.movies.length === 1 ? "film" : "films"}
+              {list.movies.length === 1
+                ? "film"
+                : "films"}
             </span>
 
             <span className="size-1 rounded-full bg-white/20" />
@@ -109,28 +114,58 @@ export function ListCard({
                 </>
               )}
             </span>
+
+            {list.collaborators.length >
+              0 && (
+              <>
+                <span className="size-1 rounded-full bg-white/20" />
+
+                <span className="flex items-center gap-1.5">
+                  <Users className="size-3.5" />
+
+                  {
+                    list.collaborators
+                      .length
+                  }
+                </span>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Owner + collaborators can edit */}
             <button
               type="button"
-              onClick={() => onOpen(list)}
+              onClick={() =>
+                onOpen(list)
+              }
               className="text-white/30 transition-colors hover:text-white"
               aria-label={`Edit ${list.title}`}
             >
               <Pencil className="size-4" />
             </button>
 
-            <button
-              type="button"
-              onClick={() => onDelete(list.id)}
-              className="text-white/25 transition-colors hover:text-red-400"
-              aria-label={`Delete ${list.title}`}
-            >
-              <Trash2 className="size-4" />
-            </button>
+            {/* Only owner can delete */}
+            {list.isOwner && (
+              <button
+                type="button"
+                onClick={() =>
+                  onDelete(list.id)
+                }
+                className="text-white/25 transition-colors hover:text-red-400"
+                aria-label={`Delete ${list.title}`}
+              >
+                <Trash2 className="size-4" />
+              </button>
+            )}
           </div>
         </div>
+
+        {!list.isOwner && (
+          <p className="mt-3 text-[11px] text-white/25">
+            Shared with you
+          </p>
+        )}
       </div>
     </article>
   );
