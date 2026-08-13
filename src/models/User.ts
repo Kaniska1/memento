@@ -6,6 +6,7 @@ import {
   type Model,
 } from "mongoose";
 
+
 const initialRatingSchema = new Schema(
   {
     movieId: {
@@ -145,52 +146,113 @@ const userSchema = new Schema(
     },
 
     settings: {
-      streamingProviders: {
-        type: [String],
-        default: [],
+  streamingProviders: {
+    type: [String],
+    default: [],
+  },
+
+  hideWatchedFromRecommendations: {
+    type: Boolean,
+    default: true,
+  },
+
+  prioritizeAvailableMovies: {
+    type: Boolean,
+    default: true,
+  },
+
+  includePopularMovies: {
+    type: Boolean,
+    default: true,
+  },
+
+  allowOlderMovies: {
+    type: Boolean,
+    default: true,
+  },
+
+  blurSpoilersByDefault: {
+    type: Boolean,
+    default: true,
+  },
+
+  defaultRewatchState: {
+    type: Boolean,
+    default: false,
+  },
+
+  diaryPrivacy: {
+    type: String,
+    enum: [
+      "private",
+      "public",
+    ],
+    default: "private",
+  },
+
+  recommendationStyle: {
+    type: String,
+    enum: [
+      "balanced",
+      "familiar",
+      "adventurous",
+    ],
+    default: "balanced",
+  },
+},
+
+notifications: {
+  type: [
+    {
+      id: {
+        type: String,
+        required: true,
       },
 
-      recommendationStyle: {
+      type: {
         type: String,
         enum: [
-          "familiar",
-          "balanced",
-          "adventurous",
+          "diary",
+          "watchlist",
+          "list",
+          "recommendation",
+          "system",
         ],
-        default: "balanced",
+        required: true,
       },
 
-      hideWatchedFromRecommendations: {
-        type: Boolean,
-        default: true,
-      },
-
-      prioritizeAvailableMovies: {
-        type: Boolean,
-        default: true,
-      },
-
-      includePopularMovies: {
-        type: Boolean,
-        default: true,
-      },
-
-      allowOlderMovies: {
-        type: Boolean,
-        default: true,
-      },
-
-      blurSpoilersByDefault: {
-        type: Boolean,
-        default: true,
-      },
-
-      diaryPrivacy: {
+      title: {
         type: String,
-        enum: ["private", "public"],
-        default: "private",
+        required: true,
+        trim: true,
+      },
+
+      message: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      href: {
+        type: String,
+        default: null,
+      },
+
+      read: {
+        type: Boolean,
+        default: false,
+      },
+
+      createdAt: {
+        type: Date,
+        default: Date.now,
       },
     },
+  ],
+
+  default: [],
+},
+
   },
   {
     timestamps: true,

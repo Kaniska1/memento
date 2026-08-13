@@ -217,7 +217,6 @@ export default async function MoviePage({
               movieTitle={movie.title}
               movieYear={movie.year}
               moviePoster={movie.poster}
-              movieRating={movie.rating}
               movieGenre={movie.genres[0] || "Film"}
             />
           </div>
@@ -342,7 +341,7 @@ export default async function MoviePage({
               You may also like
             </h2>
 
-            <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
+            <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
               {movie.recommendations.map((recommendation) => (
                 <MovieCard
                   key={recommendation.id}

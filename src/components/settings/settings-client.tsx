@@ -1,50 +1,166 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Check, Save } from "lucide-react";
+import {
+  useEffect,
+  useState,
+} from "react";
+import {
+  Check,
+  LoaderCircle,
+  Save,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+
 import {
-  getSettings,
-  saveSettings,
-} from "@/lib/settings-storage";
+  fetchSettings,
+  updateSettings,
+} from "@/lib/api/settings";
+
 import {
   defaultSettings,
   type MementoSettings,
 } from "@/types/settings";
 
 import { AccountSettings } from "./account-settings";
-import { ProfileSettings } from "./profile-settings";
 import { RecommendationSettings } from "./recommendation-settings";
 import { ViewingSettings } from "./viewing-settings";
 
 export function SettingsClient() {
   const [settings, setSettings] =
-    useState<MementoSettings>(defaultSettings);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    setSettings(getSettings());
-  }, []);
-
-  function handleSave() {
-    saveSettings(settings);
-    setSaved(true);
-
-    window.setTimeout(() => {
-      setSaved(false);
-    }, 1800);
-  }
-
-  function resetSettings() {
-    const confirmed = window.confirm(
-      "Reset all settings to their defaults?",
+    useState<MementoSettings>(
+      defaultSettings,
     );
 
-    if (!confirmed) return;
+  const [isLoading, setIsLoading] =
+    useState(true);
 
-    setSettings(defaultSettings);
-    saveSettings(defaultSettings);
+  const [isSaving, setIsSaving] =
+    useState(false);
+
+  const [saved, setSaved] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        setError("");
+
+        const data =
+          await fetchSettings();
+
+        setSettings(data);
+      } catch (error) {
+        console.error(
+          "Could not load settings:",
+          error,
+        );
+
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Could not load settings.",
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadSettings();
+  }, []);
+
+  async function handleSave() {
+    if (isSaving) {
+      return;
+    }
+
+    setIsSaving(true);
+    setSaved(false);
+    setError("");
+
+    try {
+      const updated =
+        await updateSettings(
+          settings,
+        );
+
+      setSettings(updated);
+      setSaved(true);
+
+      window.setTimeout(() => {
+        setSaved(false);
+      }, 1800);
+    } catch (error) {
+      console.error(
+        "Could not save settings:",
+        error,
+      );
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Could not save settings.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function resetSettings() {
+    const confirmed =
+      window.confirm(
+        "Reset all settings to their defaults?",
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSaving(true);
+    setSaved(false);
+    setError("");
+
+    try {
+      const updated =
+        await updateSettings(
+          defaultSettings,
+        );
+
+      setSettings(updated);
+      setSaved(true);
+
+      window.setTimeout(() => {
+        setSaved(false);
+      }, 1800);
+    } catch (error) {
+      console.error(
+        "Could not reset settings:",
+        error,
+      );
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Could not reset settings.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[600px] items-center justify-center">
+        <div className="flex items-center gap-3 text-sm text-white/40">
+          <LoaderCircle className="size-4 animate-spin" />
+
+          Loading settings...
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -61,31 +177,41 @@ export function SettingsClient() {
             </h1>
 
             <p className="mt-4 max-w-xl text-sm leading-7 text-white/40">
-              Control your profile, viewing preferences, diary, and recommendation behavior.
+              Control your viewing,
+              diary, and recommendation
+              preferences.
             </p>
           </div>
 
           <Button
             type="button"
             onClick={handleSave}
+            disabled={isSaving}
             className="bg-[#6D001A] text-white hover:bg-[#850522]"
           >
-            {saved ? (
+            {isSaving ? (
+              <LoaderCircle className="mr-2 size-4 animate-spin" />
+            ) : saved ? (
               <Check className="mr-2 size-4" />
             ) : (
               <Save className="mr-2 size-4" />
             )}
 
-            {saved ? "Saved" : "Save changes"}
+            {isSaving
+              ? "Saving..."
+              : saved
+                ? "Saved"
+                : "Save changes"}
           </Button>
         </header>
 
-        <div className="mt-10 space-y-6">
-          <ProfileSettings
-            settings={settings}
-            onChange={setSettings}
-          />
+        {error && (
+          <div className="mt-6 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
 
+        <div className="mt-10 space-y-6">
           <ViewingSettings
             settings={settings}
             onChange={setSettings}
@@ -97,7 +223,9 @@ export function SettingsClient() {
           />
 
           <AccountSettings
-            onResetSettings={resetSettings}
+            onResetSettings={
+              resetSettings
+            }
           />
         </div>
       </div>

@@ -126,7 +126,7 @@ export async function GET(
         )
         .slice(0, 20)
         .map((movie) => ({
-          id: movie.movieId,
+          id: movie.id,
 
           title: movie.title,
 

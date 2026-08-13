@@ -27,8 +27,7 @@ import {
   updateDiaryEntry,
 } from "@/lib/api/diary";
 
-import { addNotification } from "@/lib/notification-storage";
-
+import { createNotification } from "@/lib/api/notifications";
 import type { DiaryEntry } from "@/types/diary";
 
 type LogFilmDialogProps = {
@@ -161,12 +160,19 @@ export function LogFilmDialog({
           },
         );
 
-        addNotification({
-          type: "diary",
-          title: "Diary entry updated",
-          message: `Your entry for ${movieTitle} was updated.`,
-          href: "/diary",
-        });
+        try {
+  await createNotification({
+    type: "diary",
+    title: "Film logged",
+    message: `You logged ${movieTitle}.`,
+    href: "/diary",
+  });
+} catch (error) {
+  console.error(
+    "Could not create notification:",
+    error,
+  );
+}
       } else {
         await createDiaryEntry({
           movieId,
@@ -190,16 +196,19 @@ export function LogFilmDialog({
           // API generates the real values.
         });
 
-        addNotification({
-          type: "diary",
-          title: "Film added to your diary",
-          message: `${movieTitle} was logged${
-            isRewatch
-              ? " as a rewatch"
-              : ""
-          }.`,
-          href: "/diary",
-        });
+        try {
+  await createNotification({
+    type: "diary",
+    title: "Film logged",
+    message: `You logged ${movieTitle}.`,
+    href: "/diary",
+  });
+} catch (error) {
+  console.error(
+    "Could not create notification:",
+    error,
+  );
+}
       }
 
       window.dispatchEvent(

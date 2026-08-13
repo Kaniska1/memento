@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MobileSearch } from "@/components/app/mobile-search";
-import { getSettings } from "@/lib/settings-storage";
+import { fetchProfile } from "@/lib/api/profile";
 import { NotificationPanel } from "@/components/app/notification-panel";
 
 type SearchMovie = {
@@ -51,18 +51,36 @@ export function AppTopbar() {
     .toUpperCase();
 
   useEffect(() => {
-    function loadProfile() {
-      setDisplayName(getSettings().displayName || "User");
+  let cancelled = false;
+
+  async function loadProfile() {
+    try {
+      const profile =
+        await fetchProfile();
+
+      if (!cancelled) {
+        setDisplayName(
+          profile.name || "User",
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Could not load topbar profile:",
+        error,
+      );
+
+      if (!cancelled) {
+        setDisplayName("User");
+      }
     }
+  }
 
-    loadProfile();
+  loadProfile();
 
-    window.addEventListener("memento:settings-updated", loadProfile);
-
-    return () => {
-      window.removeEventListener("memento:settings-updated", loadProfile);
-    };
-  }, []);
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   useEffect(() => {
     const trimmedQuery = query.trim();

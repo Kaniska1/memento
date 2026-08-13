@@ -9,10 +9,6 @@ export type StreamingProvider =
   | "youtube";
 
 export type MementoSettings = {
-  displayName: string;
-  username: string;
-  bio: string;
-
   streamingProviders: StreamingProvider[];
 
   hideWatchedFromRecommendations: boolean;
@@ -22,7 +18,10 @@ export type MementoSettings = {
 
   blurSpoilersByDefault: boolean;
   defaultRewatchState: boolean;
-  diaryPrivacy: "private" | "public";
+
+  diaryPrivacy:
+    | "private"
+    | "public";
 
   recommendationStyle:
     | "balanced"
@@ -31,10 +30,6 @@ export type MementoSettings = {
 };
 
 export const defaultSettings: MementoSettings = {
-  displayName: "Kaniska Mitra",
-  username: "kaniska",
-  bio: "Watching films, overthinking endings, and keeping receipts.",
-
   streamingProviders: [],
 
   hideWatchedFromRecommendations: true,
@@ -44,6 +39,7 @@ export const defaultSettings: MementoSettings = {
 
   blurSpoilersByDefault: true,
   defaultRewatchState: false,
+
   diaryPrivacy: "private",
 
   recommendationStyle: "balanced",

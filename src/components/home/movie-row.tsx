@@ -43,17 +43,21 @@ export function MovieRow({
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="flex gap-3 overflow-x-auto pb-2">
         {movies.slice(0, 6).map((movie) => (
-          <MovieCard
+          <div
             key={movie.id}
-            id={movie.id}
-            title={movie.title}
-            year={movie.year}
-            rating={movie.rating}
-            genre={movie.genre}
-            poster={movie.poster}
-          />
+            className="w-[150px] shrink-0 sm:w-[165px] md:w-[175px]"
+          >
+            <MovieCard
+              id={movie.id}
+              title={movie.title}
+              year={movie.year}
+              rating={movie.rating}
+              genre={movie.genre}
+              poster={movie.poster}
+            />
+          </div>
         ))}
       </div>
     </section>

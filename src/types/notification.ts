@@ -10,7 +10,7 @@ export type MementoNotification = {
   type: MementoNotificationType;
   title: string;
   message: string;
-  href?: string;
+  href?: string | null;
   read: boolean;
   createdAt: string;
 };
