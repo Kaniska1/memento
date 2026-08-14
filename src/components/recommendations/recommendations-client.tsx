@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -19,6 +21,12 @@ import {
   fetchOnboardingPreferences,
 } from "@/lib/api/onboarding";
 
+import {
+  recordRecommendationImpressions,
+  type RecommendationImpressionInput,
+  type RecommendationMeta,
+} from "@/lib/api/recommendation-impressions";
+
 import { RecommendationCard } from "./recommendation-card";
 
 import type {
@@ -26,8 +34,36 @@ import type {
   StoredOnboardingPreferences,
 } from "@/types/recommendation";
 
+const MAX_RECENT_BATCHES = 4;
+
 type RecommendationResponse = {
   results: RecommendedMovie[];
+
+  meta?: {
+    /*
+     * API naming: totalSeenCount includes
+     * watched interactions + "seen" feedback.
+     *
+     * RecommendationMeta still calls this
+     * watchedCount, so we map it explicitly
+     * below when recording impressions.
+     */
+    totalSeenCount: number;
+
+    experienceScore: number;
+
+    recommendationStyle:
+      | "familiar"
+      | "balanced"
+      | "adventurous";
+
+    refreshRotation?: {
+      requestedBatches: number;
+      enforcedBatches: number;
+      temporarilyExcluded: number;
+    };
+  };
+
   message?: string;
 };
 
@@ -40,6 +76,14 @@ export function RecommendationsClient() {
     setPreferences,
   ] =
     useState<StoredOnboardingPreferences | null>(
+      null,
+    );
+
+  const [
+    recommendationMeta,
+    setRecommendationMeta,
+  ] =
+    useState<RecommendationMeta | null>(
       null,
     );
 
@@ -58,6 +102,33 @@ export function RecommendationsClient() {
     reloadKey,
     setReloadKey,
   ] = useState(0);
+
+  /*
+   * Oldest -> newest recommendation batches.
+   *
+   * This is intentionally kept only in
+   * memory. Refresh rotation is temporary UI
+   * state, not user taste or ML feedback.
+   */
+  const recentBatches =
+    useRef<number[][]>([]);
+
+  const pendingImpressions =
+    useRef<
+      RecommendationImpressionInput[]
+    >([]);
+
+  const recordedMovieIds =
+    useRef<Set<number>>(
+      new Set(),
+    );
+
+  const flushTimer =
+    useRef<
+      ReturnType<
+        typeof setTimeout
+      > | null
+    >(null);
 
   /*
    * Load taste profile from MongoDB.
@@ -114,15 +185,6 @@ export function RecommendationsClient() {
       return;
     }
 
-    /*
-     * Store the narrowed value locally.
-     * This prevents TypeScript from
-     * treating preferences as possibly null
-     * inside the nested async function.
-     */
-    const currentPreferences =
-      preferences;
-
     const controller =
       new AbortController();
 
@@ -131,35 +193,41 @@ export function RecommendationsClient() {
       setError("");
 
       try {
-        const favouriteIds =
-          currentPreferences
-            .favouriteMovies
-            .map(
-              (movie) =>
-                movie.movieId,
-            )
-            .join(",");
-
-        const genreIds =
-          currentPreferences
-            .preferredGenreIds
-            .join(",");
-
         const params =
-          new URLSearchParams({
-            favourites:
-              favouriteIds,
+          new URLSearchParams();
 
-            genres:
-              genreIds,
-          });
+        if (
+          recentBatches.current
+            .length > 0
+        ) {
+          params.set(
+            "recentBatches",
+            JSON.stringify(
+              recentBatches.current,
+            ),
+          );
+        }
+
+        const query =
+          params.toString();
+
+        const endpoint =
+          query
+            ? `/api/tmdb/recommendations?${query}`
+            : "/api/tmdb/recommendations";
 
         const response =
           await fetch(
-            `/api/tmdb/recommendations?${params.toString()}`,
+            endpoint,
             {
               signal:
                 controller.signal,
+
+              credentials:
+                "include",
+
+              cache:
+                "no-store",
             },
           );
 
@@ -173,9 +241,52 @@ export function RecommendationsClient() {
           );
         }
 
+        /*
+         * New recommendation batch =
+         * new impression tracking session.
+         */
+        recordedMovieIds.current.clear();
+
+        pendingImpressions.current =
+          [];
+
+        if (flushTimer.current) {
+          clearTimeout(
+            flushTimer.current,
+          );
+
+          flushTimer.current =
+            null;
+        }
+
+        const nextMovies =
+          data.results ?? [];
+
         setMovies(
-          data.results ?? [],
+          nextMovies,
         );
+
+        if (data.meta) {
+          setRecommendationMeta({
+            /*
+             * Keep the impression payload's
+             * existing field name while using
+             * the clearer API metadata name.
+             */
+            watchedCount:
+              data.meta.totalSeenCount,
+
+            experienceScore:
+              data.meta.experienceScore,
+
+            recommendationStyle:
+              data.meta.recommendationStyle,
+          });
+        } else {
+          setRecommendationMeta(
+            null,
+          );
+        }
       } catch (loadError) {
         if (
           loadError instanceof
@@ -209,6 +320,127 @@ export function RecommendationsClient() {
     preferences,
     reloadKey,
   ]);
+
+  const flushImpressions =
+    useCallback(() => {
+      if (
+        pendingImpressions.current
+          .length === 0 ||
+        !recommendationMeta
+      ) {
+        return;
+      }
+
+      const pending = [
+        ...pendingImpressions.current,
+      ];
+
+      pendingImpressions.current =
+        [];
+
+      void recordRecommendationImpressions(
+        pending,
+        recommendationMeta,
+      ).catch((error) => {
+        console.error(
+          "Could not record recommendation impressions:",
+          error,
+        );
+      });
+    }, [recommendationMeta]);
+
+  const handleImpression =
+    useCallback(
+      (
+        movie: RecommendedMovie,
+        position: number,
+      ) => {
+        if (
+          recordedMovieIds.current.has(
+            movie.id,
+          )
+        ) {
+          return;
+        }
+
+        recordedMovieIds.current.add(
+          movie.id,
+        );
+
+        pendingImpressions.current.push({
+          movie,
+          position,
+        });
+
+        if (
+          flushTimer.current
+        ) {
+          clearTimeout(
+            flushTimer.current,
+          );
+        }
+
+        flushTimer.current =
+          setTimeout(() => {
+            flushTimer.current =
+              null;
+
+            flushImpressions();
+          }, 600);
+      },
+      [flushImpressions],
+    );
+
+  /*
+   * Flush any pending impressions
+   * before the component disappears.
+   */
+  useEffect(() => {
+    return () => {
+      if (flushTimer.current) {
+        clearTimeout(
+          flushTimer.current,
+        );
+      }
+
+      flushImpressions();
+    };
+  }, [flushImpressions]);
+
+  const handleRefreshPicks =
+    useCallback(() => {
+      /*
+       * Record the batch that is CURRENTLY
+       * visible immediately before requesting
+       * the next one.
+       *
+       * Doing this in the click handler makes
+       * the rotation deterministic: the very
+       * request triggered by this click already
+       * contains the current batch as an
+       * exclusion.
+       */
+      if (movies.length > 0) {
+        const currentBatch =
+          movies.map(
+            (movie) =>
+              movie.id,
+          );
+
+        recentBatches.current =
+          [
+            ...recentBatches.current,
+            currentBatch,
+          ].slice(
+            -MAX_RECENT_BATCHES,
+          );
+      }
+
+      setReloadKey(
+        (current) =>
+          current + 1,
+      );
+    }, [movies]);
 
   if (isLoadingPreferences) {
     return (
@@ -285,19 +517,17 @@ export function RecommendationsClient() {
             <p className="mt-4 max-w-2xl text-sm leading-7 text-white/40 sm:text-base">
               Recommendations shaped
               by your favourite films,
-              preferred genres, and
-              ratings.
+              preferred genres,
+              ratings, and viewing
+              behaviour.
             </p>
           </div>
 
           <Button
             type="button"
             variant="outline"
-            onClick={() =>
-              setReloadKey(
-                (current) =>
-                  current + 1,
-              )
+            onClick={
+              handleRefreshPicks
             }
             disabled={isLoading}
             className="border-white/10 bg-[#090909] text-white hover:bg-white hover:text-black"
@@ -355,10 +585,23 @@ export function RecommendationsClient() {
             movies.length > 0 && (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                 {movies.map(
-                  (movie) => (
+                  (
+                    movie,
+                    index,
+                  ) => (
                     <RecommendationCard
-                      key={movie.id}
-                      movie={movie}
+                      key={
+                        movie.id
+                      }
+                      movie={
+                        movie
+                      }
+                      onImpression={() =>
+                        handleImpression(
+                          movie,
+                          index,
+                        )
+                      }
                     />
                   ),
                 )}
@@ -368,7 +611,8 @@ export function RecommendationsClient() {
           {!isLoading &&
             !error &&
             preferences !== null &&
-            movies.length === 0 && (
+            movies.length ===
+              0 && (
               <div className="rounded-3xl border border-white/10 bg-[#080808] px-6 py-14 text-center">
                 <p className="text-sm text-white/40">
                   We could not find
