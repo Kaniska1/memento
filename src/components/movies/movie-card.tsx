@@ -28,12 +28,12 @@ export function MovieCard({
         className="block"
         aria-label={`View ${title}`}
       >
-        <div className="relative aspect-[2/3] overflow-hidden rounded-xl border border-white/10 bg-[#080808]">
+        <div className="relative aspect-[2/3] overflow-hidden rounded-2xl border border-white/10 bg-[#080808] shadow-[0_14px_40px_rgba(0,0,0,0.18)] transition duration-300 group-hover:-translate-y-0.5 group-hover:border-white/20 group-hover:shadow-[0_20px_50px_rgba(0,0,0,0.3)]">
           <Image
             src={poster}
             alt={`${title} poster`}
             fill
-            className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+            className="object-cover transition-transform duration-500 group-hover:scale-[1.035]"
             sizes="(max-width: 640px) 50vw, 20vw"
           />
 

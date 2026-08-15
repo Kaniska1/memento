@@ -73,6 +73,21 @@ const internationalLanguages = [
   "fa",
 ];
 
+const genreNameToId =
+  new Map<string, number>(
+    Object.entries(
+      genreMap,
+    ).map(
+      ([id, name]) => [
+        name.toLowerCase(),
+        Number(id),
+      ],
+    ),
+  );
+
+const MAX_LEARNED_GENRES = 5;
+const MAX_HISTORY_SEEDS = 12;
+
 type TmdbMovie = {
   id: number;
   title: string;
@@ -365,7 +380,18 @@ export async function GET(
         userId: currentUser.id,
       })
         .select(
-          "movieId watched liked rating watchlisted",
+          [
+            "movieId",
+            "watched",
+            "liked",
+            "rating",
+            "watchlisted",
+            "genre",
+            "originalLanguage",
+            "tmdbVoteCount",
+            "tmdbRating",
+            "lastWatchedAt",
+          ].join(" "),
         )
         .lean();
 
@@ -436,7 +462,7 @@ export async function GET(
           movie.movieId,
       );
 
-    const preferredGenreIds =
+    const onboardingGenreIds =
       user.preferredGenreIds ??
       [];
 
@@ -519,6 +545,259 @@ export async function GET(
       }
     }
 
+    /*
+     * --------------------------------------------------
+     * IMPORTED / HISTORICAL TASTE PROFILE
+     * --------------------------------------------------
+     *
+     * Letterboxd history lives in MovieInteraction,
+     * not RecommendationImpression. That is exactly
+     * what we want: imported history should improve
+     * taste context and candidate generation without
+     * pretending those films were Memento recs.
+     */
+
+    const genreScores =
+      new Map<number, number>();
+
+    let internationalPositiveWeight =
+      0;
+
+    let positiveHistoryWeight =
+      0;
+
+    let obscurePositiveWeight =
+      0;
+
+    for (const interaction of
+      interactions) {
+      if (!interaction.watched) {
+        continue;
+      }
+
+      const rating =
+        interaction.rating;
+
+      const positive =
+        interaction.liked ||
+        (
+          rating !== null &&
+          rating !== undefined &&
+          rating >= 3.5
+        );
+
+      /*
+       * Watched-only data contributes lightly;
+       * explicit likes/high ratings contribute
+       * much more strongly.
+       */
+      let weight = 0.25;
+
+      if (
+        rating !== null &&
+        rating !== undefined
+      ) {
+        weight +=
+          normalize(
+            rating,
+            2.5,
+            5,
+          ) * 1.5;
+      }
+
+      if (interaction.liked) {
+        weight += 1;
+      }
+
+      const genreId =
+        genreNameToId.get(
+          (
+            interaction.genre ??
+            ""
+          ).toLowerCase(),
+        );
+
+      if (genreId) {
+        genreScores.set(
+          genreId,
+          (
+            genreScores.get(
+              genreId,
+            ) ?? 0
+          ) + weight,
+        );
+      }
+
+      if (positive) {
+        const positiveWeight =
+          Math.max(
+            weight,
+            0.5,
+          );
+
+        positiveHistoryWeight +=
+          positiveWeight;
+
+        if (
+          interaction.originalLanguage &&
+          interaction.originalLanguage !==
+            "en"
+        ) {
+          internationalPositiveWeight +=
+            positiveWeight;
+        }
+
+        const voteCount =
+          interaction.tmdbVoteCount;
+
+        /*
+         * Treat low-lifetime-vote films as
+         * evidence of a genuine deep-cut taste.
+         * This mirrors obscurity v2's emphasis
+         * on lifetime exposure rather than
+         * current trending popularity.
+         */
+        if (
+          voteCount !== null &&
+          voteCount !== undefined &&
+          voteCount > 0 &&
+          voteCount <= 2500
+        ) {
+          obscurePositiveWeight +=
+            positiveWeight;
+        }
+      }
+    }
+
+    const learnedGenreIds =
+      Array.from(
+        genreScores.entries(),
+      )
+        .sort(
+          (a, b) =>
+            b[1] - a[1],
+        )
+        .slice(
+          0,
+          MAX_LEARNED_GENRES,
+        )
+        .map(
+          ([genreId]) =>
+            genreId,
+        );
+
+    const preferredGenreIds =
+      Array.from(
+        new Set<number>([
+          ...onboardingGenreIds,
+          ...learnedGenreIds,
+        ]),
+      );
+
+    const internationalTasteScore =
+      positiveHistoryWeight > 0
+        ? clamp(
+            internationalPositiveWeight /
+              positiveHistoryWeight,
+            0,
+            1,
+          )
+        : 0;
+
+    const obscureTasteScore =
+      positiveHistoryWeight > 0
+        ? clamp(
+            obscurePositiveWeight /
+              positiveHistoryWeight,
+            0,
+            1,
+          )
+        : 0;
+
+    /*
+     * Strong history seeds are selected by
+     * explicit preference rather than MongoDB
+     * iteration order. This matters a lot once
+     * imports add hundreds of liked/rated films.
+     */
+    const historySeedIds =
+      interactions
+        .filter(
+          (interaction) =>
+            interaction.watched &&
+            (
+              interaction.liked ||
+              (
+                interaction.rating !==
+                  null &&
+                interaction.rating !==
+                  undefined &&
+                interaction.rating >=
+                  4
+              )
+            ),
+        )
+        .map(
+          (interaction) => {
+            const rating =
+              interaction.rating ?? 0;
+
+            const ratingScore =
+              normalize(
+                rating,
+                3.5,
+                5,
+              );
+
+            const likeScore =
+              interaction.liked
+                ? 1
+                : 0;
+
+            const recentScore =
+              interaction.lastWatchedAt
+                ? normalize(
+                    new Date(
+                      interaction.lastWatchedAt,
+                    ).getTime(),
+                    Date.now() -
+                      1000 *
+                        60 *
+                        60 *
+                        24 *
+                        365 *
+                        10,
+                    Date.now(),
+                  )
+                : 0;
+
+            return {
+              movieId:
+                interaction.movieId,
+
+              score:
+                ratingScore *
+                  0.65 +
+                likeScore *
+                  0.25 +
+                recentScore *
+                  0.1,
+            };
+          },
+        )
+        .sort(
+          (a, b) =>
+            b.score - a.score,
+        )
+        .slice(
+          0,
+          MAX_HISTORY_SEEDS,
+        )
+        .map(
+          (seed) =>
+            seed.movieId,
+        );
+
     const recommendationStyle =
       user.settings
         ?.recommendationStyle ??
@@ -585,14 +864,37 @@ export async function GET(
     const seedIds =
       Array.from(
         new Set<number>([
+          /*
+           * Explicit onboarding favourites
+           * keep first priority.
+           */
           ...favouriteIds,
-          ...highlyRatedIds,
-          ...likedIds,
+
+          /*
+           * Then use the strongest historical
+           * likes/ratings, including imported
+           * Letterboxd history.
+           */
+          ...historySeedIds,
+
+          /*
+           * Native Memento browsing remains a
+           * small live-interest signal.
+           */
           ...Array.from(
             openedIds,
           ).slice(0, 3),
+
+          /*
+           * Fallback coverage for old accounts.
+           */
+          ...highlyRatedIds,
+          ...likedIds,
         ]),
-      ).slice(0, 10);
+      ).slice(
+        0,
+        MAX_HISTORY_SEEDS,
+      );
 
     const favouriteRequests =
       seedIds.map(
@@ -670,18 +972,25 @@ export async function GET(
     const shouldExploreInternational =
       watchedCount >= 20 ||
       recommendationStyle ===
-        "adventurous";
+        "adventurous" ||
+      internationalTasteScore >=
+        0.15;
 
     const internationalRequests =
       shouldExploreInternational
         ? internationalLanguages
             .slice(
               0,
-              watchedCount >= 150
+              internationalTasteScore >=
+                0.35
                 ? 10
-                : watchedCount >= 75
-                  ? 7
-                  : 4,
+                : internationalTasteScore >=
+                      0.2 ||
+                    watchedCount >= 150
+                  ? 8
+                  : watchedCount >= 75
+                    ? 6
+                    : 4,
             )
             .map(
               async (
@@ -738,7 +1047,9 @@ export async function GET(
     const shouldExploreObscure =
       watchedCount >= 40 ||
       recommendationStyle ===
-        "adventurous";
+        "adventurous" ||
+      obscureTasteScore >=
+        0.12;
 
     const obscureRequests =
       shouldExploreObscure
@@ -1063,12 +1374,26 @@ export async function GET(
 
           const internationalScore =
             isInternational
-              ? experienceScore
+              ? clamp(
+                  experienceScore *
+                    0.7 +
+                    internationalTasteScore *
+                      0.3,
+                  0,
+                  1,
+                )
               : 0;
 
           const deepCutScore =
             obscurityScore *
-            experienceScore;
+            clamp(
+              experienceScore *
+                0.75 +
+                obscureTasteScore *
+                  0.25,
+              0,
+              1,
+            );
 
           const explorationScore =
             clamp(
@@ -1182,7 +1507,9 @@ export async function GET(
             )
           ) {
             reason =
-              "Similar to films you already rate, like, open, or consider favourites.";
+              watchedCount >= 100
+                ? "Similar to films you have rated highly or liked across your viewing history."
+                : "Similar to films you already rate, like, open, or consider favourites.";
           } else if (
             matchingGenres.length >
             1
@@ -1676,6 +2003,34 @@ export async function GET(
 
         openedCount:
           openedIds.size,
+
+        historicalTaste: {
+          learnedGenreIds,
+
+          learnedGenres:
+            learnedGenreIds.map(
+              (genreId) =>
+                genreMap[
+                  genreId
+                ] ??
+                "Unknown",
+            ),
+
+          historySeedCount:
+            historySeedIds.length,
+
+          internationalAffinity:
+            Math.round(
+              internationalTasteScore *
+                100,
+            ),
+
+          obscureAffinity:
+            Math.round(
+              obscureTasteScore *
+                100,
+            ),
+        },
 
         refreshRotation: {
           requestedBatches:

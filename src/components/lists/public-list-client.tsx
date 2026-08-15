@@ -150,8 +150,8 @@ export function PublicListClient({
                 </span>
               )}
 
-              {list.collaborators.length >
-                0 && (
+              {(list.collaborators?.length ??
+                0) > 0 && (
                 <span className="flex items-center gap-1.5">
                   <Users className="size-3.5" />
 
@@ -215,7 +215,10 @@ export function PublicListClient({
             <span>
               by{" "}
               <span className="font-medium text-white/60">
-                @{list.owner.username}
+                @{
+                  list.owner?.username ??
+                  "unknown"
+                }
               </span>
             </span>
 
@@ -237,15 +240,15 @@ export function PublicListClient({
         </header>
 
         {/* Collaborators */}
-        {list.collaborators.length >
-          0 && (
+        {(list.collaborators?.length ??
+          0) > 0 && (
           <section className="mt-8 rounded-2xl border border-white/10 bg-[#080808] p-4">
             <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[#9B1738]">
               Collaborators
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              {list.collaborators.map(
+              {(list.collaborators ?? []).map(
                 (collaborator) => (
                   <span
                     key={

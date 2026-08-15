@@ -49,7 +49,7 @@ export function DiaryEntryCard({
   const { month, year, day } = getDateParts(entry.watchedDate);
 
   return (
-    <article className="group border-b border-white/[0.08]">
+    <article className="group border-b border-white/[0.08] transition-colors hover:bg-white/[0.015]">
       <div className="grid min-h-28 grid-cols-[72px_42px_62px_minmax(180px,1fr)] items-center gap-3 py-4 md:grid-cols-[82px_48px_64px_minmax(220px,1fr)_80px_150px_58px_72px_72px_48px] md:gap-4">
         {/* Month calendar */}
         <div>
@@ -77,14 +77,14 @@ export function DiaryEntryCard({
         {/* Poster */}
         <Link
           href={`/movies/${entry.movieId}`}
-          className="relative aspect-[2/3] w-12 overflow-hidden rounded-md border border-white/10 bg-[#0A0A0A]"
+          className="relative aspect-[2/3] w-12 overflow-hidden rounded-lg border border-white/10 bg-[#0A0A0A] shadow-lg transition group-hover:border-white/20"
         >
           {entry.poster ? (
             <Image
               src={entry.poster}
               alt={`${entry.movieTitle} poster`}
               fill
-              className="object-cover"
+              className="object-cover transition duration-300 group-hover:scale-[1.04]"
               sizes="48px"
             />
           ) : (

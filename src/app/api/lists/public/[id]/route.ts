@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/current-user";
 import { connectDB } from "@/lib/mongodb";
 import MovieList from "@/models/MovieList";
+import User from "@/models/User";
 
 export const runtime = "nodejs";
 
@@ -57,9 +58,12 @@ export async function GET(
       currentUserId !== null &&
       list.ownerId.toString() === currentUserId;
 
+    const collaborators =
+      list.collaborators ?? [];
+
     const isCollaborator =
       currentUserId !== null &&
-      list.collaborators.some(
+      collaborators.some(
         (collaborator) =>
           collaborator.userId.toString() ===
           currentUserId,
@@ -82,6 +86,21 @@ export async function GET(
       );
     }
 
+    /*
+     * MovieList stores ownerId rather than an
+     * embedded owner object. Resolve the owner
+     * here so native and imported lists expose
+     * the same public API shape.
+     */
+    const owner =
+      await User.findById(
+        list.ownerId,
+      )
+        .select(
+          "username",
+        )
+        .lean();
+
     return NextResponse.json({
       success: true,
 
@@ -97,13 +116,22 @@ export async function GET(
         ownerId:
           list.ownerId.toString(),
 
+        owner: {
+          userId:
+            list.ownerId.toString(),
+
+          username:
+            owner?.username ??
+            "unknown",
+        },
+
         isOwner,
         isCollaborator,
 
         movies: list.movies,
 
         collaborators:
-          list.collaborators.map(
+          collaborators.map(
             (collaborator) => ({
               userId:
                 collaborator.userId.toString(),

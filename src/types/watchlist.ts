@@ -8,6 +8,8 @@ export type WatchlistMovie = {
   genre: string;
 
   rating: number | null;
+  tmdbRating: number | null;
+  tmdbVoteCount: number | null;
 
   watched: boolean;
   liked: boolean;

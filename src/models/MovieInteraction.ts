@@ -42,6 +42,36 @@ const movieInteractionSchema = new Schema(
       default: "Film",
     },
 
+    /*
+     * Optional discovery metadata.
+     *
+     * Letterboxd imports resolve through TMDB,
+     * so we can preserve a small amount of
+     * stable movie metadata that helps build
+     * a richer taste profile without turning
+     * imported history into fake recommendation
+     * impressions.
+     */
+    originalLanguage: {
+      type: String,
+      default: "",
+      trim: true,
+      lowercase: true,
+    },
+
+    tmdbVoteCount: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+
+    tmdbRating: {
+      type: Number,
+      default: null,
+      min: 0,
+      max: 10,
+    },
+
     watched: {
       type: Boolean,
       default: false,

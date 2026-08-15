@@ -45,7 +45,19 @@ export async function GET() {
         poster: movie.poster,
         genre: movie.genre,
 
-        rating: movie.rating,
+        // Personal Memento / Letterboxd rating (0.5–5).
+        rating: movie.rating ?? null,
+
+        // TMDB score (0–10), used by Watchlist rating filters/sorting.
+        tmdbRating:
+          typeof movie.tmdbRating === "number"
+            ? movie.tmdbRating
+            : null,
+
+        tmdbVoteCount:
+          typeof movie.tmdbVoteCount === "number"
+            ? movie.tmdbVoteCount
+            : null,
 
         watched: movie.watched,
         liked: movie.liked,

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Bookmark,
+  Check,
   Eye,
   Heart,
   LoaderCircle,
@@ -103,6 +104,27 @@ export function MovieActions({
     setError("");
 
     try {
+      const normalizedChanges = {
+        ...changes,
+      };
+
+      // Liking or rating a film is a strong watched signal.
+      if (
+        changes.liked === true ||
+        (
+          changes.rating !== undefined &&
+          changes.rating !== null &&
+          changes.rating > 0
+        )
+      ) {
+        normalizedChanges.watched = true;
+
+        if (!interaction.lastWatchedAt) {
+          normalizedChanges.lastWatchedAt =
+            new Date().toISOString();
+        }
+      }
+
       const updated =
         await updateMovieInteraction(
           movieId,
@@ -112,7 +134,7 @@ export function MovieActions({
             poster:
               moviePoster ?? null,
             genre: movieGenre,
-            ...changes,
+            ...normalizedChanges,
           },
         );
 
@@ -135,14 +157,34 @@ export function MovieActions({
 
   if (isLoading) {
     return (
-      <div className="flex min-h-36 items-center justify-center">
-        <LoaderCircle className="size-5 animate-spin text-[#8E1231]" />
+      <div className="rounded-3xl border border-white/10 bg-black/45 p-5 backdrop-blur-xl">
+        <div className="h-4 w-28 animate-pulse rounded bg-white/[0.06]" />
+        <div className="mt-5 grid grid-cols-3 gap-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="h-20 animate-pulse rounded-2xl bg-white/[0.04]"
+            />
+          ))}
+        </div>
+        <div className="sr-only">
+          <LoaderCircle className="animate-spin" />
+          Loading your activity...
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
+    <aside className="rounded-3xl border border-white/10 bg-black/55 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:p-6">
+      <div className="mb-5">
+        <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#9B1738]">
+          Your activity
+        </p>
+        <p className="mt-2 text-sm text-white/35">
+          Keep Memento in sync with your taste.
+        </p>
+      </div>
       {/* Icon actions */}
       <div className="grid grid-cols-3 gap-3">
         <ActionButton
@@ -276,12 +318,19 @@ export function MovieActions({
         </p>
       )}
 
+      {interaction.watched && (
+        <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-white/30">
+          <Check className="size-3.5 text-[#9B1738]" />
+          In your watched history
+        </div>
+      )}
+
       {error && (
-        <p className="mt-4 text-sm text-red-300">
+        <p className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-300">
           {error}
         </p>
       )}
-    </div>
+    </aside>
   );
 }
 
@@ -302,7 +351,8 @@ function ActionButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-col items-center justify-center gap-2 rounded-2xl border px-3 py-4 text-xs transition ${
+      disabled={false}
+      className={`flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border px-3 py-4 text-xs transition duration-200 active:scale-[0.98] ${
         active
           ? "border-[#6D001A] bg-[#160006] text-[#B82648]"
           : "border-white/10 bg-black text-white/40 hover:border-white/20 hover:text-white"

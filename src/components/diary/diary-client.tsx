@@ -12,7 +12,9 @@ import {
   ChevronDown,
   Film,
   LoaderCircle,
+  RotateCcw,
   Search,
+  SlidersHorizontal,
 } from "lucide-react";
 
 import { LogFilmDialog } from "@/components/movies/log-film-dialog";
@@ -46,6 +48,14 @@ export function DiaryClient() {
     useState<"newest" | "oldest">(
       "newest",
     );
+
+  const [entryType, setEntryType] =
+    useState<
+      "all" | "liked" | "rewatch" | "reviewed"
+    >("all");
+
+  const [year, setYear] =
+    useState("all");
 
   const [
     editingEntry,
@@ -109,12 +119,48 @@ export function DiaryClient() {
         query.trim().toLowerCase();
 
       const result = entries.filter(
-        (entry) =>
-          entry.movieTitle
-            .toLowerCase()
-            .includes(
-              normalizedQuery,
-            ),
+        (entry) => {
+          const matchesQuery =
+            normalizedQuery.length === 0 ||
+            entry.movieTitle
+              .toLowerCase()
+              .includes(
+                normalizedQuery,
+              );
+
+          const watchedYear =
+            entry.watchedDate.slice(
+              0,
+              4,
+            );
+
+          const matchesYear =
+            year === "all" ||
+            watchedYear === year;
+
+          const matchesType =
+            entryType === "all" ||
+            (
+              entryType === "liked" &&
+              entry.liked
+            ) ||
+            (
+              entryType === "rewatch" &&
+              entry.isRewatch
+            ) ||
+            (
+              entryType === "reviewed" &&
+              Boolean(
+                entry.review?.trim(),
+              )
+            );
+
+          return (
+            matchesQuery &&
+            matchesYear &&
+            matchesType
+          );
+        },
       );
 
       return [...result].sort(
@@ -139,7 +185,41 @@ export function DiaryClient() {
       entries,
       query,
       sortOrder,
+      entryType,
+      year,
     ]);
+
+  const diaryYears =
+    useMemo(
+      () =>
+        Array.from(
+          new Set(
+            entries.map(
+              (entry) =>
+                entry.watchedDate.slice(
+                  0,
+                  4,
+                ),
+            ),
+          ),
+        ).sort(
+          (a, b) =>
+            Number(b) -
+            Number(a),
+        ),
+      [entries],
+    );
+
+  const hasActiveFilters =
+    query.trim().length > 0 ||
+    entryType !== "all" ||
+    year !== "all";
+
+  function clearFilters() {
+    setQuery("");
+    setEntryType("all");
+    setYear("all");
+  }
 
   async function handleDelete(
     entryId: string,
@@ -205,8 +285,8 @@ export function DiaryClient() {
               </p>
             </div>
 
-            <div className="flex items-center gap-2 text-xs text-white/35">
-              <CalendarDays className="size-4" />
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.025] px-3 py-2 text-xs text-white/40">
+              <CalendarDays className="size-4 text-[#9B1738]" />
 
               {entries.length}{" "}
               {entries.length === 1
@@ -217,8 +297,13 @@ export function DiaryClient() {
 
           {/* Filters */}
           {entries.length > 0 && (
-            <section className="mt-10 rounded-2xl border border-white/10 bg-[#080808] p-4">
-              <div className="grid gap-3 md:grid-cols-[1fr_180px]">
+            <section className="mt-10 rounded-2xl border border-white/10 bg-[#080808] p-4 sm:p-5">
+              <div className="flex items-center gap-2 text-xs font-medium text-white/45">
+                <SlidersHorizontal className="size-4 text-[#9B1738]" />
+                Browse your diary
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_170px_170px_190px]">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-white/30" />
 
@@ -233,6 +318,67 @@ export function DiaryClient() {
                     className="h-11 border-white/10 bg-black pl-11 text-white placeholder:text-white/25"
                   />
                 </div>
+
+                <label className="relative">
+                  <select
+                    value={year}
+                    onChange={(event) =>
+                      setYear(
+                        event.target.value,
+                      )
+                    }
+                    className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-black px-4 pr-10 text-sm text-white outline-none focus:border-[#6D001A]"
+                  >
+                    <option value="all">
+                      All years
+                    </option>
+
+                    {diaryYears.map(
+                      (item) => (
+                        <option
+                          key={item}
+                          value={item}
+                        >
+                          {item}
+                        </option>
+                      ),
+                    )}
+                  </select>
+
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-white/30" />
+                </label>
+
+                <label className="relative">
+                  <select
+                    value={entryType}
+                    onChange={(event) =>
+                      setEntryType(
+                        event.target
+                          .value as
+                          | "all"
+                          | "liked"
+                          | "rewatch"
+                          | "reviewed",
+                      )
+                    }
+                    className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-black px-4 pr-10 text-sm text-white outline-none focus:border-[#6D001A]"
+                  >
+                    <option value="all">
+                      All entries
+                    </option>
+                    <option value="liked">
+                      Liked
+                    </option>
+                    <option value="rewatch">
+                      Rewatches
+                    </option>
+                    <option value="reviewed">
+                      With reviews
+                    </option>
+                  </select>
+
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-white/30" />
+                </label>
 
                 <label className="relative">
                   <select
@@ -259,18 +405,43 @@ export function DiaryClient() {
                   <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-white/30" />
                 </label>
               </div>
+
+              <div className="mt-4 flex min-h-8 flex-wrap items-center justify-between gap-3 border-t border-white/[0.07] pt-4">
+                <p className="text-xs text-white/30">
+                  Showing{" "}
+                  <span className="font-medium text-white/60">
+                    {filteredEntries.length}
+                  </span>{" "}
+                  of {entries.length} entries
+                </p>
+
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="flex items-center gap-1.5 text-xs text-white/35 transition hover:text-white"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    Clear filters
+                  </button>
+                )}
+              </div>
             </section>
           )}
 
           {/* Loading */}
           {isLoading && (
-            <div className="mt-10 flex min-h-[400px] items-center justify-center rounded-3xl border border-white/10 bg-[#060606]">
-              <div className="text-center">
-                <LoaderCircle className="mx-auto size-7 animate-spin text-[#8E1231]" />
+            <div className="mt-10 space-y-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="h-28 animate-pulse rounded-2xl border border-white/10 bg-white/[0.025]"
+                />
+              ))}
 
-                <p className="mt-4 text-sm text-white/35">
-                  Opening your diary...
-                </p>
+              <div className="sr-only">
+                <LoaderCircle className="animate-spin" />
+                Opening your diary...
               </div>
             </div>
           )}
@@ -368,15 +539,28 @@ export function DiaryClient() {
                   </div>
                 )}
 
-                {/* Search empty */}
+                {/* Filtered empty */}
                 {entries.length > 0 &&
                   filteredEntries.length ===
                     0 && (
                     <div className="mt-8 rounded-3xl border border-white/10 bg-[#060606] px-6 py-16 text-center">
-                      <p className="text-sm text-white/40">
-                        No diary entries
-                        match “{query}”.
+                      <SlidersHorizontal className="mx-auto size-6 text-white/20" />
+
+                      <h2 className="mt-4 text-lg font-medium text-white">
+                        No diary entries match those filters.
+                      </h2>
+
+                      <p className="mt-2 text-sm text-white/35">
+                        Try another year, entry type, or title.
                       </p>
+
+                      <button
+                        type="button"
+                        onClick={clearFilters}
+                        className="mt-5 text-sm font-medium text-white transition hover:text-[#A51636]"
+                      >
+                        Clear filters
+                      </button>
                     </div>
                   )}
 

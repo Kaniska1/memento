@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   Bookmark,
   Check,
+  CircleCheckBig,
   EyeOff,
   LoaderCircle,
   Sparkles,
@@ -73,6 +74,18 @@ export function RecommendationCard({
     setIsSavingWatchlist,
   ] = useState(false);
 
+  const [
+    actionMessage,
+    setActionMessage,
+  ] = useState("");
+
+  const actionTimer =
+    useRef<
+      ReturnType<
+        typeof setTimeout
+      > | null
+    >(null);
+
   const cardRef =
     useRef<HTMLElement | null>(
       null,
@@ -130,6 +143,37 @@ export function RecommendationCard({
       observer.disconnect();
     };
   }, [onImpression]);
+
+  useEffect(() => {
+    return () => {
+      if (actionTimer.current) {
+        clearTimeout(
+          actionTimer.current,
+        );
+      }
+    };
+  }, []);
+
+  function showActionMessage(
+    message: string,
+  ) {
+    setActionMessage(
+      message,
+    );
+
+    if (actionTimer.current) {
+      clearTimeout(
+        actionTimer.current,
+      );
+    }
+
+    actionTimer.current =
+      setTimeout(() => {
+        setActionMessage("");
+        actionTimer.current =
+          null;
+      }, 1600);
+  }
 
   async function patchInteraction(
     patch: {
@@ -207,9 +251,18 @@ export function RecommendationCard({
             nextWatchlisted,
         });
 
-      setIsWatchlisted(
+      const savedWatchlisted =
         interaction?.watchlisted ??
-          nextWatchlisted,
+        nextWatchlisted;
+
+      setIsWatchlisted(
+        savedWatchlisted,
+      );
+
+      showActionMessage(
+        savedWatchlisted
+          ? "Added to watchlist"
+          : "Removed from watchlist",
       );
     } catch (error) {
       console.error(
@@ -302,6 +355,12 @@ export function RecommendationCard({
       setFeedback(
         nextFeedback,
       );
+
+      showActionMessage(
+        nextFeedback === "seen"
+          ? "Added to watched"
+          : "Got it — less like this",
+      );
     } catch (error) {
       console.error(
         "Could not update recommendation feedback:",
@@ -341,7 +400,7 @@ export function RecommendationCard({
             void handleOpen();
           }}
         >
-          <div className="relative aspect-[2/3] overflow-hidden rounded-xl border border-white/10 bg-[#080808]">
+          <div className="relative aspect-[2/3] overflow-hidden rounded-2xl border border-white/10 bg-[#080808] shadow-[0_14px_40px_rgba(0,0,0,0.22)] transition duration-300 group-hover:-translate-y-0.5 group-hover:border-white/20 group-hover:shadow-[0_18px_50px_rgba(0,0,0,0.34)]">
             <Image
               src={movie.poster}
               alt={`${movie.title} poster`}
@@ -350,9 +409,9 @@ export function RecommendationCard({
               sizes="(max-width: 640px) 50vw, 20vw"
             />
 
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/15" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/5 to-black/20" />
 
-            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full border border-[#6D001A]/70 bg-[#6D001A]/85 px-2.5 py-1 backdrop-blur-md">
+            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full border border-[#8E1231]/70 bg-[#5D0017]/85 px-2.5 py-1 shadow-lg backdrop-blur-md">
               <Sparkles className="size-3 text-white" />
 
               <span className="text-[10px] font-semibold text-white">
@@ -428,10 +487,19 @@ export function RecommendationCard({
             />
           )}
         </button>
+
+        {actionMessage && (
+          <div className="pointer-events-none absolute inset-x-3 bottom-3 z-30 flex justify-center">
+            <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-black/85 px-3 py-1.5 text-[10px] font-medium text-white shadow-xl backdrop-blur-md">
+              <CircleCheckBig className="size-3.5 text-emerald-400" />
+              {actionMessage}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mt-3">
-        <div className="rounded-xl border border-white/10 bg-[#080808] p-3">
+        <div className="rounded-xl border border-white/10 bg-gradient-to-br from-[#0a0a0a] to-[#070707] p-3 transition-colors group-hover:border-white/[0.14]">
           <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-[#9B1738]">
             Why this film?
           </p>
@@ -452,7 +520,7 @@ export function RecommendationCard({
                 "seen",
               )
             }
-            className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2.5 text-[10px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
               feedback === "seen"
                 ? "border-[#6D001A] bg-[#160006] text-white"
                 : "border-white/10 text-white/35 hover:border-white/20 hover:text-white"
@@ -479,7 +547,7 @@ export function RecommendationCard({
                 "not_interested",
               )
             }
-            className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2.5 text-[10px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
               feedback ===
               "not_interested"
                 ? "border-[#6D001A] bg-[#160006] text-white"

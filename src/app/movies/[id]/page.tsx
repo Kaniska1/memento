@@ -93,7 +93,7 @@ export default async function MoviePage({
   return (
     <div className="min-h-screen bg-black text-white">
       {/* Backdrop */}
-      <section className="relative min-h-180 overflow-hidden">
+      <section className="relative min-h-[720px] overflow-hidden">
         {movie.backdrop && (
           <Image
             src={movie.backdrop}
@@ -107,10 +107,10 @@ export default async function MoviePage({
 
         <div className="absolute inset-0 bg-black/35" />
         <div className="absolute inset-0 bg-[#6D001A]/10 mix-blend-color" />
-        <div className="absolute inset-0 bg-linear-to-r from-black via-black/70 to-black/25" />
-        <div className="absolute inset-0 bg-linear-to-t from-black via-black/40 to-black/45" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-black/25" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/45" />
 
-        <div className="relative z-10 mx-auto max-w-375 px-5 pb-16 pt-10 sm:px-8 lg:px-12 lg:pt-14">
+        <div className="relative z-10 mx-auto max-w-[1500px] px-5 pb-16 pt-10 sm:px-8 lg:px-12 lg:pt-14">
           <Link
             href="/home"
             className="inline-flex items-center gap-2 text-sm text-white/50 transition-colors hover:text-white"
@@ -119,9 +119,9 @@ export default async function MoviePage({
             Back
           </Link>
 
-          <div className="mt-20 grid items-end gap-10 lg:grid-cols-[260px_minmax(0,1fr)_380px]">
+          <div className="mt-16 grid items-end gap-10 lg:mt-24 lg:grid-cols-[260px_minmax(0,1fr)_360px] xl:gap-12">
             {/* Poster */}
-            <div className="relative mx-auto aspect-2/3 w-full max-w-65 overflow-hidden rounded-3xl border border-white/10 bg-[#090909] shadow-2xl shadow-black/70 lg:mx-0">
+            <div className="relative mx-auto aspect-[2/3] w-full max-w-[260px] overflow-hidden rounded-3xl border border-white/10 bg-[#090909] shadow-2xl shadow-black/70 lg:mx-0">
               {movie.poster ? (
                 <Image
                   src={movie.poster}
@@ -181,18 +181,26 @@ export default async function MoviePage({
                 </span>
               </div>
 
-              <p className="mt-7 max-w-3xl text-base leading-8 text-white/65">
-                {movie.overview}
-              </p>
+              {movie.overview ? (
+                <p className="mt-7 max-w-3xl text-base leading-8 text-white/65">
+                  {movie.overview}
+                </p>
+              ) : (
+                <p className="mt-7 max-w-3xl text-base italic leading-8 text-white/35">
+                  No synopsis is available for this film yet.
+                </p>
+              )}
 
-              <div className="mt-7 text-sm">
-                <span className="text-white/35">
-                  Directed by
-                </span>{" "}
-                <span className="font-medium text-white">
-                  {movie.director}
-                </span>
-              </div>
+              {movie.director && (
+                <div className="mt-7 text-sm">
+                  <span className="text-white/35">
+                    Directed by
+                  </span>{" "}
+                  <span className="font-medium text-white">
+                    {movie.director}
+                  </span>
+                </div>
+              )}
 
               {movie.trailerKey && (
                 <Button
@@ -223,7 +231,7 @@ export default async function MoviePage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-375 space-y-20 px-5 pb-24 sm:px-8 lg:px-12">
+      <div className="mx-auto max-w-[1500px] space-y-20 px-5 pb-24 sm:px-8 lg:px-12">
         {/* Cast */}
         {movie.cast.length > 0 && (
           <section>
@@ -235,16 +243,19 @@ export default async function MoviePage({
               Top cast
             </h2>
 
-            <div className="mt-8 grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10">
+            <div className="mt-8 flex snap-x gap-4 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {movie.cast.map((member) => (
-                <article key={member.id}>
-                  <div className="relative aspect-square overflow-hidden rounded-2xl border border-white/10 bg-[#090909]">
+                <article
+                  key={member.id}
+                  className="w-[120px] shrink-0 snap-start sm:w-[135px]"
+                >
+                  <div className="relative aspect-square overflow-hidden rounded-2xl border border-white/10 bg-[#090909] shadow-[0_12px_30px_rgba(0,0,0,0.16)]">
                     {member.profile ? (
                       <Image
                         src={member.profile}
                         alt={member.name}
                         fill
-                        className="object-cover"
+                        className="object-cover transition duration-300 hover:scale-[1.035]"
                         sizes="140px"
                       />
                     ) : (
@@ -303,11 +314,11 @@ export default async function MoviePage({
               )}
             </div>
 
-            <div className="mt-8 flex flex-wrap gap-4">
+            <div className="mt-8 flex flex-wrap gap-3">
               {providers.map((provider) => (
                 <div
                   key={provider.id}
-                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black px-4 py-3"
+                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black px-4 py-3 transition hover:border-white/20 hover:bg-white/[0.025]"
                 >
                   <Image
                     src={provider.logo}
@@ -341,7 +352,7 @@ export default async function MoviePage({
               You may also like
             </h2>
 
-            <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            <div className="mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
               {movie.recommendations.map((recommendation) => (
                 <MovieCard
                   key={recommendation.id}

@@ -9,7 +9,8 @@ import {
 const diaryEntrySchema = new Schema(
   {
     userId: {
-      type: Schema.Types.ObjectId,
+      type:
+        Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true,
@@ -47,14 +48,24 @@ const diaryEntrySchema = new Schema(
       default: null,
       min: 0.5,
       max: 5,
+
       validate: {
-        validator(value: number | null) {
-          if (value === null) {
+        validator(
+          value:
+            | number
+            | null,
+        ) {
+          if (
+            value === null
+          ) {
             return true;
           }
 
-          return Number.isInteger(value * 2);
+          return Number.isInteger(
+            value * 2,
+          );
         },
+
         message:
           "Rating must use increments of 0.5.",
       },
@@ -80,6 +91,26 @@ const diaryEntrySchema = new Schema(
       type: Boolean,
       default: false,
     },
+
+    /*
+     * Import provenance makes external imports
+     * idempotent without changing normal
+     * Memento diary behavior.
+     */
+    source: {
+      type: String,
+      enum: [
+        "memento",
+        "letterboxd",
+      ],
+      default: "memento",
+      index: true,
+    },
+
+    externalId: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -97,8 +128,31 @@ diaryEntrySchema.index({
   movieId: 1,
 });
 
+diaryEntrySchema.index(
+  {
+    userId: 1,
+    source: 1,
+    externalId: 1,
+  },
+  {
+    unique: true,
+
+    partialFilterExpression: {
+      source:
+        "letterboxd",
+
+      externalId: {
+        $type:
+          "string",
+      },
+    },
+  },
+);
+
 export type DiaryEntryDocument =
-  InferSchemaType<typeof diaryEntrySchema>;
+  InferSchemaType<
+    typeof diaryEntrySchema
+  >;
 
 const DiaryEntry =
   (models.DiaryEntry as Model<DiaryEntryDocument>) ||

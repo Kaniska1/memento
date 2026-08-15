@@ -1,707 +1,471 @@
-# Memento 🎬
+# Memento
 
-> **Your cinema, remembered.**
+**A personal film companion that learns your taste instead of just storing your watch history.**
 
-Memento is a personal film discovery, tracking, and recommendation platform built for people who want more than just another movie database.
+Memento combines film tracking, a Letterboxd-grade diary, TMDB discovery, and a hybrid recommendation system that mixes deterministic taste signals with a weighted machine-learning ranker.
 
-Discover films, maintain a watchlist, log everything you watch, write reviews, create lists, track your viewing history, and gradually build a taste profile that powers personalized recommendations.
-
-Rather than focusing on streaming movies directly, Memento focuses on **remembering what you watch and understanding what you like**.
+> Built with Next.js, TypeScript, MongoDB, TMDB, Flask, and scikit-learn.
 
 ---
 
-## ✨ Features
+## Why Memento?
 
-### 🎬 Film Discovery
+Most movie trackers are good at remembering what you watched. Recommendation systems are usually black boxes that ignore the context behind *why* you liked something.
 
-- Browse currently trending movies
-- Explore popular films
-- View top-rated movies
-- Search the TMDB catalogue
-- Filter and discover films
-- Dedicated movie detail pages
-- Movie metadata, genres, ratings, cast, and other information
+Memento tries to do both.
 
-### 🧠 Taste Onboarding
+It builds a living taste profile from:
 
-New users build their initial taste profile by:
+- watched films
+- ratings
+- likes
+- watchlist behaviour
+- recommendation opens
+- "Seen" / "Not for me" feedback
+- favourite films and genres
+- imported Letterboxd history
+- international-film affinity
+- obscurity / deep-cut affinity
 
-- Selecting **4 favourite films**
-- Choosing preferred genres
-- Rating popular movies from those genres
-- Rating films in **0.5-star increments**
+That profile feeds a hybrid ranking pipeline that gets better as the user interacts with the product.
 
-This information forms the initial dataset for Memento's recommendation system.
+---
 
-### ⭐ Half-Star Rating System
+## Highlights
 
-Movies can be rated using:
+- **Hybrid recommendation engine** combining ML, deterministic taste matching, and controlled diversity.
+- **17-feature weighted ML ranker** served through a dedicated Flask microservice.
+- **Automatic model retraining** once enough new cleaned recommendation feedback accumulates.
+- **Letterboxd ZIP importer** for watched films, ratings, likes, watchlist, diary entries, reviews, rewatches, and custom lists.
+- **Confidence-based TMDB matching** with manual review for ambiguous films.
+- **Idempotent imports** — importing the same Letterboxd archive again updates data instead of duplicating it.
+- **Personal film diary** with ratings, reviews, rewatches, likes, and spoiler handling.
+- **Watchlist and watched-library filtering** by title, genre, rating, and sort preferences.
+- **Custom ranked/unranked lists** with public/private visibility.
+- **Movie detail pages** with cast, trailers, providers, ratings, logging, and interaction controls.
+- **Adaptive recommendation exploration** for international and obscure cinema.
+- **Refresh rotation** that avoids immediately recycling the same recommendation set.
 
-```text
-0.5 ★
-1.0 ★
-1.5 ★
-2.0 ★
-...
-4.5 ★
-5.0 ★
+---
+
+## Recommendation System
+
+Memento does not ask a single model to do everything.
+
+The recommendation flow is split into distinct stages:
+
+```mermaid
+flowchart LR
+    A[User taste + history] --> B[Candidate generation]
+    LB[Letterboxd import] --> A
+    TMDB[TMDB] --> B
+
+    B --> C[Hard quality gate]
+    C --> D[Feature extraction]
+
+    D --> E[Deterministic match score]
+    D --> F[ML preference score]
+    D --> G[Diversity / exploration score]
+
+    E --> H[Hybrid ranker]
+    F --> H
+    G --> H
+
+    H --> I[Rotation + exclusion rules]
+    I --> J[For You feed]
+
+    J --> K[Impressions / opens / feedback]
+    K --> L[Training dataset]
+    L --> M[Weighted retraining]
+    M --> F
 ```
 
-The rating component detects which half of a star is selected, providing a Letterboxd-style rating experience.
+### Hybrid score
 
-### 📖 Film Diary
-
-Users can log every movie they watch.
-
-Each diary entry can contain:
-
-- Watch date
-- Rating
-- Review/comment
-- Like status
-- Rewatch status
-- Spoiler status
-- Movie poster and metadata
-
-The diary uses a calendar-inspired layout showing:
+The current ranking blend is:
 
 ```text
-MONTH | DAY | POSTER | FILM | RELEASED | RATING | LIKE | REWATCH | REVIEW | EDIT
+55% learned ML preference
+30% deterministic taste match
+15% diversity / exploration
 ```
 
-Existing diary entries can also be edited or deleted.
+If the ML service is unavailable, Memento falls back to deterministic ranking rather than failing the recommendation page.
 
-### ❤️ Favourites
+### Recommendation signals
 
-Users can maintain a personal collection of favourite films.
+The feature pipeline includes signals such as:
 
-Favourites can be:
+- genre affinity
+- seeded similarity
+- TMDB rating
+- Memento rating
+- Memento rating count
+- popularity
+- vote strength
+- obscurity
+- international status
+- watched-count / experience
+- candidate source
+- recommendation style
 
-- Added directly from movie pages
-- Removed
-- Searched
-- Sorted by title
-- Sorted by rating
-- Sorted by release year
-- Sorted by date added
+Imported Letterboxd history enriches the user taste profile but **does not masquerade as Memento recommendation impressions**, keeping the ML feedback dataset semantically clean.
 
-### 🔖 Watchlist
+---
 
-Movies can be saved for later through a persistent personal watchlist.
+## ML Service
+
+The ranking model runs separately from the Next.js application.
+
+```mermaid
+flowchart LR
+    NX[Next.js] -->|feature batch| FLASK[Flask ML service]
+    FLASK --> MODEL[model.joblib]
+    MODEL --> FLASK
+    FLASK -->|scores| NX
+
+    DATA[Clean recommendation feedback] --> TRAIN[train.py]
+    TRAIN --> VALIDATE[validate artifact]
+    VALIDATE --> MODEL
+```
+
+The trainer uses sample weighting so weak neutral impressions do not drown out stronger explicit signals.
+
+A health endpoint exposes the active model state, including:
+
+```json
+{
+  "modelLoaded": true,
+  "featureCount": 17,
+  "usesSampleWeights": true,
+  "trainedDatasetRows": 624,
+  "lastTrainingTrigger": "manual"
+}
+```
+
+Automatic retraining checks the cleaned dataset and only retrains after the configured threshold of genuinely new usable rows has been reached.
+
+---
+
+## Letterboxd Import
+
+Memento accepts a standard Letterboxd data-export ZIP.
+
+### Imported data
+
+- watched films
+- ratings
+- likes
+- watchlist
+- diary entries
+- rewatches
+- reviews
+- custom lists
+
+### Matching pipeline
+
+```mermaid
+flowchart LR
+    ZIP[Letterboxd ZIP] --> PARSE[Parse CSV files]
+    PARSE --> NORMALIZE[Normalize + deduplicate]
+    NORMALIZE --> MATCH[TMDB title/year matching]
+
+    MATCH -->|high confidence| AUTO[Auto match]
+    MATCH -->|ambiguous| REVIEW[Manual review]
+    MATCH -->|no match| SEARCH[Manual TMDB search]
+
+    AUTO --> IMPORT[Idempotent MongoDB import]
+    REVIEW --> IMPORT
+    SEARCH --> IMPORT
+```
+
+The importer preserves list ordering and ignores Letterboxd collaborators because a collaborator on Letterboxd does not imply a corresponding Memento account.
+
+---
+
+## Core Product Features
+
+### Film discovery
+
+Browse trending and top-rated films, search globally, inspect full movie details, cast, trailers, and India-specific provider availability.
+
+### For You
+
+A recommendation feed shaped by the user's actual viewing history and evolving behaviour.
 
 Users can:
 
-- Add/remove films
-- Browse their saved films
-- Open movie details directly from the watchlist
+- bookmark directly from a recommendation poster
+- mark films as seen
+- mark recommendations "Not for me"
+- refresh picks without immediately seeing the same batch again
 
-### 📚 Custom Lists
+### Watched library
 
-Users can create their own movie collections.
+Search, sort, and filter the full watched collection by genre and personal rating.
 
-Lists support:
+Liking or rating a film automatically marks it as watched.
 
-- Custom titles
-- Descriptions
-- Movie search
-- Adding/removing films
-- Ranked lists
-- Unranked lists
-- Film reordering
-- Public/private visibility
-- Collaborators for private lists
+### Watchlist
 
-### 🎯 Personalized Recommendations
+Search and filter saved films by genre and TMDB rating, with independent sorting by title, release year, recency, or TMDB score.
 
-Memento includes a dedicated recommendation experience designed around the user's taste profile.
+### Diary
 
-Recommendation signals include:
+Track each viewing separately with:
 
-- Favourite movies
-- Preferred genres
-- Initial onboarding ratings
-- Diary ratings
-- Viewing history
-- Likes
-- Watchlist behaviour
+- date
+- rating
+- review
+- spoilers
+- like status
+- rewatch status
 
-The recommendation backend will continue to evolve as the project develops.
+### Lists
 
-### 👤 Profiles
+Build public/private ranked or unranked movie lists.
 
-Users have personal film profiles containing:
-
-- Display name
-- Username
-- Bio
-- Favourite films
-- Viewing statistics
-- Diary activity
-- Lists
-- Ratings
-
-Profile information can be edited directly inside Memento.
-
-### 🔔 Notifications
-
-Memento includes an in-app notification system with:
-
-- Unread notification counter
-- Notification dropdown
-- Read/unread state
-- Deep links to relevant pages
-- Notification deletion
-- Mark-all-as-read support
-
-Current frontend notifications are stored locally and will progressively move to backend persistence.
-
-### 🔍 Global Search
-
-Movie search is available throughout the application.
-
-Desktop and mobile have dedicated search experiences, with mobile using a full-screen search interface.
-
-### 📱 Responsive UI
-
-Memento is designed for:
-
-- Desktop
-- Laptop
-- Tablet
-- Mobile
-
-The application uses a responsive sidebar/topbar/navigation system depending on screen size.
+Letterboxd custom lists can be imported while preserving order.
 
 ---
 
-# 🔐 Authentication
+## Architecture
 
-Memento includes its own authentication system.
+```mermaid
+flowchart TB
+    U[Browser] --> NEXT[Next.js App Router]
 
-Current authentication features include:
+    NEXT --> AUTH[Auth + server routes]
+    NEXT --> MDB[(MongoDB)]
+    NEXT --> TMDB[TMDB API]
+    NEXT --> ML[Flask ML service]
 
-- User registration
-- User login
-- Secure logout
-- Password hashing
-- JWT-based sessions
-- HTTP-only authentication cookies
-- Protected application routes
-- Server-side session validation
-- Persistent MongoDB users
-- Onboarding-aware redirects
+    ML --> MODEL[(joblib model)]
+    ML --> TRAIN[Weighted trainer]
 
-Passwords are hashed using **bcrypt** before being stored.
+    NEXT --> IMP[Letterboxd importer]
+    IMP --> TMDB
+    IMP --> MDB
 
-Session tokens are signed using **JOSE** and stored inside HTTP-only cookies.
-
-```text
-Signup
-   ↓
-Validate credentials
-   ↓
-Hash password
-   ↓
-Create MongoDB user
-   ↓
-Generate session JWT
-   ↓
-Set HTTP-only cookie
-   ↓
-Onboarding
-   ↓
-Memento
-```
-
-Returning users follow:
-
-```text
-Login
-   ↓
-Verify password
-   ↓
-Generate session
-   ↓
-Check onboarding status
-   ↓
-┌──────────────────┐
-│ Completed?       │
-├─────────┬────────┤
-│ No      │ Yes    │
-↓         ↓
-Onboarding  Home
+    NEXT --> REC[Recommendation engine]
+    REC --> MDB
+    REC --> TMDB
+    REC --> ML
 ```
 
 ---
 
-# 🛠 Tech Stack
+## Tech Stack
 
-## Frontend
+### Frontend / application
 
-- **Next.js 16**
-- **React**
-- **TypeScript**
-- **Tailwind CSS**
-- **shadcn/ui**
-- **Lucide React**
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+- Lucide icons
 
-## Backend
+### Backend / data
 
-- **Next.js Route Handlers**
-- **MongoDB**
-- **Mongoose**
-- **bcryptjs**
-- **JOSE**
-- **Zod**
+- Next.js Route Handlers
+- MongoDB
+- Mongoose
 
-## Movie Data
+### Recommendation / ML
 
-- **TMDB API**
+- Python
+- Flask
+- scikit-learn
+- pandas
+- joblib
 
-TMDB currently provides movie information such as:
+### External APIs
 
-- Trending movies
-- Popular movies
-- Search results
-- Movie metadata
-- Genres
-- Posters
-- Backdrops
-- Ratings
+- TMDB
+- JustWatch provider data through TMDB
 
 ---
 
-# 🗂 Project Structure
+## Project Structure
 
 ```text
 memento/
+├─ src/
+│  ├─ app/
+│  │  ├─ api/
+│  │  │  ├─ import/letterboxd/
+│  │  │  ├─ ml/
+│  │  │  ├─ movies/
+│  │  │  └─ tmdb/
+│  │  └─ (app)/
+│  ├─ components/
+│  ├─ lib/
+│  ├─ models/
+│  └─ types/
 │
-├── public/
+├─ ml-service/
+│  ├─ app.py
+│  ├─ train.py
+│  └─ model.joblib
 │
-├── src/
-│   │
-│   ├── app/
-│   │   │
-│   │   ├── (app)/
-│   │   │   ├── home/
-│   │   │   ├── discover/
-│   │   │   ├── recommendations/
-│   │   │   ├── diary/
-│   │   │   ├── watchlist/
-│   │   │   ├── favourites/
-│   │   │   ├── lists/
-│   │   │   ├── profile/
-│   │   │   └── settings/
-│   │   │
-│   │   ├── api/
-│   │   │   ├── auth/
-│   │   │   │   ├── signup/
-│   │   │   │   ├── login/
-│   │   │   │   ├── logout/
-│   │   │   │   └── me/
-│   │   │   │
-│   │   │   ├── health/
-│   │   │   │   └── db/
-│   │   │   │
-│   │   │   ├── onboarding/
-│   │   │   └── tmdb/
-│   │   │
-│   │   ├── login/
-│   │   ├── signup/
-│   │   ├── onboarding/
-│   │   └── movies/
-│   │       └── [id]/
-│   │
-│   ├── components/
-│   │   ├── app/
-│   │   ├── diary/
-│   │   ├── discover/
-│   │   ├── favourites/
-│   │   ├── home/
-│   │   ├── lists/
-│   │   ├── movies/
-│   │   ├── onboarding/
-│   │   ├── profile/
-│   │   ├── recommendations/
-│   │   ├── settings/
-│   │   ├── watchlist/
-│   │   └── ui/
-│   │
-│   ├── lib/
-│   │   ├── auth.ts
-│   │   ├── current-user.ts
-│   │   ├── mongodb.ts
-│   │   ├── diary-storage.ts
-│   │   ├── favourite-storage.ts
-│   │   ├── notification-storage.ts
-│   │   ├── settings-storage.ts
-│   │   ├── watchlist-storage.ts
-│   │   └── validations/
-│   │
-│   ├── models/
-│   │   └── User.ts
-│   │
-│   ├── types/
-│   │
-│   └── proxy.ts
-│
-├── .env.local
-├── package.json
-└── README.md
-```
-
-The structure will expand as frontend `localStorage` systems are migrated to MongoDB-backed APIs.
-
----
-
-# 🚀 Getting Started
-
-## 1. Clone the repository
-
-```bash
-git clone <YOUR_REPOSITORY_URL>
-```
-
-```bash
-cd memento
+├─ docs/
+└─ public/
 ```
 
 ---
 
-## 2. Install dependencies
+## Local Development
+
+### 1. Install the Next.js app
 
 ```bash
 npm install
 ```
 
----
-
-## 3. Configure environment variables
-
-Create:
-
-```text
-.env.local
-```
-
-Add:
+Create `.env.local`:
 
 ```env
-TMDB_ACCESS_TOKEN=your_tmdb_read_access_token
+MONGODB_URI=
+TMDB_ACCESS_TOKEN=
 
-MONGODB_URI=your_mongodb_connection_string
-
-JWT_SECRET=your_long_random_jwt_secret
+ML_SERVICE_URL=http://localhost:8001
+ML_RETRAIN_SECRET=
 ```
 
-### Generate a JWT secret
+Add any authentication secrets required by your current auth setup as well.
 
-```bash
-node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
-```
-
-Copy the generated value into:
-
-```env
-JWT_SECRET=...
-```
-
-> Never commit `.env.local` or expose these credentials publicly.
-
----
-
-# 🎞 TMDB Setup
-
-Memento uses TMDB as its primary movie metadata provider.
-
-Create a TMDB account and obtain an API Read Access Token.
-
-Add it to:
-
-```env
-TMDB_ACCESS_TOKEN=your_access_token
-```
-
-TMDB requests are handled server-side so the access token does not need to be exposed directly to the browser.
-
----
-
-# 🍃 MongoDB Setup
-
-Create a MongoDB Atlas database and obtain its connection string.
-
-Example:
-
-```env
-MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@CLUSTER.mongodb.net/memento?retryWrites=true&w=majority
-```
-
-Replace:
-
-```text
-USERNAME
-PASSWORD
-CLUSTER
-```
-
-with your MongoDB Atlas credentials.
-
----
-
-# 🧪 Test the Database
-
-Start the development server:
+Run:
 
 ```bash
 npm run dev
 ```
 
-Visit:
+### 2. Start the ML service
+
+```bash
+cd ml-service
+
+python -m venv .venv
+```
+
+Windows:
+
+```bash
+.venv\Scripts\activate
+```
+
+macOS / Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Create `ml-service/.env`:
+
+```env
+ML_RETRAIN_SECRET=
+ML_RETRAIN_MIN_NEW_ROWS=50
+```
+
+Start Flask:
+
+```bash
+python app.py
+```
+
+The app and ML service must use the **same** `ML_RETRAIN_SECRET`.
+
+---
+
+## Retraining
+
+Manual training:
+
+```bash
+cd ml-service
+python train.py
+```
+
+The application also supports threshold-based automatic retraining.
+
+The current default threshold is:
 
 ```text
-http://localhost:3000/api/health/db
+50 new cleaned / usable training rows
 ```
 
-A successful connection returns:
+Raw duplicate or weak rows do not directly count toward that threshold.
 
-```json
-{
-  "success": true,
-  "database": "connected",
-  "readyState": 1
-}
+---
+
+## Environment Variables
+
+Never commit real secrets.
+
+Typical values used by the project include:
+
+```env
+MONGODB_URI=
+TMDB_ACCESS_TOKEN=
+
+ML_SERVICE_URL=
+ML_RETRAIN_SECRET=
+
+ML_RETRAIN_CHECK_EVERY_RAW=50
+ML_RETRAIN_MIN_NEW_ROWS=50
 ```
 
----
-
-# 🔐 Test Authentication
-
-After creating or logging into an account, visit:
-
-```text
-http://localhost:3000/api/auth/me
-```
-
-An authenticated request returns:
-
-```json
-{
-  "success": true,
-  "user": {
-    "id": "...",
-    "name": "...",
-    "username": "...",
-    "email": "...",
-    "onboardingCompleted": false
-  }
-}
-```
-
-Without a valid session:
-
-```json
-{
-  "success": false,
-  "message": "You are not authenticated."
-}
-```
+Authentication-related environment variables depend on the current auth configuration.
 
 ---
 
-# 💾 Current Data Architecture
+## Portfolio Demo Flow
 
-Memento is currently transitioning from a frontend prototype into a fully persistent application.
+For a short demo, the strongest sequence is:
 
-Some features still temporarily use browser `localStorage`:
+1. Open the dashboard and global film discovery.
+2. Open **For You** and explain the hybrid recommendation score.
+3. Bookmark a recommendation directly from its poster.
+4. Mark another recommendation as seen.
+5. Rate or like a film and show that it enters Watched automatically.
+6. Open the Diary and demonstrate rewatches/reviews.
+7. Show Watchlist filtering and custom lists.
+8. Upload a Letterboxd export and show TMDB matching/manual review.
+9. Show the ML health endpoint and automatic retraining metadata.
 
-```text
-memento:onboarding
-memento:diary
-memento:watchlist
-memento:favourites
-memento:lists
-memento:settings
-memento:notifications
-```
-
-Authentication and users are already backed by MongoDB.
-
-The remaining local systems are being progressively migrated to authenticated database APIs.
-
-This allows the UI and interactions to remain functional while backend persistence is introduced incrementally.
+That demonstrates the product, full-stack engineering, data migration, and ML lifecycle without turning the demo into a code tour.
 
 ---
 
-# 🧠 Recommendation System
+## Engineering Decisions
 
-The recommendation system is intended to build a progressively richer representation of a user's movie taste.
+A few choices were deliberate:
 
-### Initial signals
-
-```text
-4 Favourite Films
-        +
-Preferred Genres
-        +
-Initial Movie Ratings
-        ↓
-Initial Taste Profile
-```
-
-### Long-term signals
-
-As the user interacts with Memento:
-
-```text
-Initial Taste Profile
-        +
-Diary Entries
-        +
-Ratings
-        +
-Likes
-        +
-Rewatches
-        +
-Watchlist
-        +
-Viewing History
-        ↓
-Evolving Taste Profile
-        ↓
-Personalized Recommendations
-```
-
-This means recommendations improve as the user uses Memento rather than relying exclusively on generic popularity.
+- **Imported Letterboxd history is not inserted as fake recommendation feedback.**
+- **Watched and watchlisted are mutually exclusive.**
+- **Rating or liking implies watched.**
+- **Ambiguous TMDB matches require user review.**
+- **Re-importing Letterboxd data is idempotent.**
+- **ML failure does not take down recommendations.**
+- **Model retraining is thresholded rather than triggered after every interaction.**
+- **Recommendation rotation is temporary UI state, not permanent taste data.**
 
 ---
 
-# 🗺 Development Roadmap
+## Roadmap
 
-### Phase 1 — Frontend
-
-- [x] Landing page
-- [x] Responsive application shell
-- [x] Movie discovery
-- [x] Movie details
-- [x] Global search
-- [x] Mobile search
-- [x] Watchlist
-- [x] Favourites
-- [x] Film logging
-- [x] Half-star ratings
-- [x] Film diary
-- [x] Reviews and spoiler marking
-- [x] Rewatch tracking
-- [x] Lists
-- [x] Ranked/unranked lists
-- [x] List collaborators UI
-- [x] Profile
-- [x] Profile editing
-- [x] Settings
-- [x] Notifications
-- [x] Loading states
-- [x] Onboarding
-
-### Phase 2 — Backend
-
-- [x] MongoDB connection
-- [x] User model
-- [x] Signup
-- [x] Login
-- [x] Logout
-- [x] JWT sessions
-- [x] Protected routes
-- [x] Current-user API
-- [ ] Persist onboarding
-- [ ] Diary API
-- [ ] Ratings persistence
-- [ ] Watchlist API
-- [ ] Favourites API
-- [ ] Lists API
-- [ ] List collaboration
-- [ ] Profile/settings persistence
-- [ ] Persistent notifications
-
-### Phase 3 — Recommendations
-
-- [ ] Build user taste vectors
-- [ ] Genre preference weighting
-- [ ] Rating-based preference modelling
-- [ ] Favourite-film similarity
-- [ ] Diary-based recommendation signals
-- [ ] Rewatch weighting
-- [ ] Recommendation scoring
-- [ ] Explainable recommendations
-- [ ] Exclude already-watched films
-
-### Phase 4 — Production
-
-- [ ] Backend data migration
-- [ ] Error boundaries
-- [ ] Rate limiting
-- [ ] Authentication hardening
-- [ ] Database indexes
-- [ ] Caching
-- [ ] Performance optimization
-- [ ] Accessibility audit
-- [ ] Production deployment
+The core portfolio product is feature-complete. Remaining work is primarily production deployment, monitoring, and further model evaluation with larger real-world datasets.
 
 ---
 
-# 🎨 Design Philosophy
+## Author
 
-Memento intentionally avoids the visual language of generic streaming platforms.
+Built by **Kaniska Mitra**.
 
-The interface uses:
-
-- Deep black backgrounds
-- Burgundy/red accents
-- Muted typography
-- Cinematic imagery
-- Minimal borders
-- Large editorial typography
-- Subtle gradients and fades
-
-The goal is to feel closer to a **personal cinematic archive** than a streaming service.
-
----
-
-# 🔒 Security
-
-Memento currently implements several fundamental authentication protections:
-
-- Passwords are never stored directly
-- Passwords are hashed using bcrypt
-- Authentication tokens are signed
-- Session cookies are HTTP-only
-- Cookies use `SameSite=Lax`
-- Production cookies use `Secure`
-- Protected routes require authentication
-- Server-side session validation verifies the JWT
-- Private APIs identify users through their session rather than trusting client-provided user IDs
-- Password hashes are excluded from normal Mongoose queries
-
-Additional production security measures will be introduced before deployment.
-
----
-
-# 📌 Current Status
-
-**Active Development**
-
-The primary frontend experience is complete.
-
-Authentication and MongoDB integration are operational, and development is currently focused on migrating Memento's user-generated data from browser storage to authenticated backend APIs.
-
----
-
-# 🙏 Acknowledgements
-
-Movie metadata and imagery are provided using **TMDB**.
-
-Memento is an independent project and is not affiliated with or endorsed by TMDB.
-
----
-
-## Built with 🎬, questionable sleep schedules, and an unreasonable attachment to movies.

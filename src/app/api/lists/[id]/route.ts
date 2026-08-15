@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { connectDB } from "@/lib/mongodb";
 import { updateListSchema } from "@/lib/validations/lists";
 import MovieList from "@/models/MovieList";
+import User from "@/models/User";
 
 export const runtime = "nodejs";
 
@@ -217,6 +218,22 @@ export async function PATCH(
 
     await existing.save();
 
+    /*
+     * Keep the list response shape consistent
+     * with the public-list API. Imported lists
+     * only persist ownerId, so resolve the
+     * corresponding Memento user here instead
+     * of assuming an embedded owner exists.
+     */
+    const owner =
+      await User.findById(
+        existing.ownerId,
+      )
+        .select(
+          "username",
+        )
+        .lean();
+
     return NextResponse.json({
       success: true,
 
@@ -241,6 +258,15 @@ export async function PATCH(
 
         ownerId:
           existing.ownerId.toString(),
+
+        owner: {
+          userId:
+            existing.ownerId.toString(),
+
+          username:
+            owner?.username ??
+            "unknown",
+        },
 
         isOwner,
 
