@@ -162,3 +162,8 @@ scratch/
 debug/
 resolved_tracks.json
 sync_report.csv
+
+
+# AI coding assistant instructions
+AGENTS.md
+CLAUDE.md
