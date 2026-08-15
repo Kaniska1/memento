@@ -1,7 +1,11 @@
+import hmac
+import json
 import os
+import threading
 
 import joblib
 import pandas as pd
+from dotenv import load_dotenv
 
 from flask import (
     Flask,
@@ -10,7 +14,10 @@ from flask import (
 )
 
 from features import prepare_features
+from train import train_model
 
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -23,21 +30,60 @@ MODEL_PATH = os.path.join(
     "model.joblib",
 )
 
+DATA_DIR = os.path.join(
+    BASE_DIR,
+    "data",
+)
+
+DATA_PATH = os.path.join(
+    DATA_DIR,
+    "recommendation_dataset.json",
+)
+
+TEMP_DATA_PATH = os.path.join(
+    DATA_DIR,
+    "recommendation_dataset.next.json",
+)
+
 model = None
 model_feature_columns = None
 uses_sample_weights = False
+trained_dataset_rows = None
+previous_dataset_rows = None
+last_trained_at = None
+last_training_trigger = None
+model_metrics = None
 model_load_error = None
+
+retrain_lock = threading.Lock()
+
+AUTO_RETRAIN_MIN_NEW_ROWS = int(
+    os.environ.get(
+        "ML_RETRAIN_MIN_NEW_ROWS",
+        "50",
+    )
+)
 
 
 def load_model():
     global model
     global model_feature_columns
     global uses_sample_weights
+    global trained_dataset_rows
+    global previous_dataset_rows
+    global last_trained_at
+    global last_training_trigger
+    global model_metrics
     global model_load_error
 
     model = None
     model_feature_columns = None
     uses_sample_weights = False
+    trained_dataset_rows = None
+    previous_dataset_rows = None
+    last_trained_at = None
+    last_training_trigger = None
+    model_metrics = None
     model_load_error = None
 
     if not os.path.exists(
@@ -100,6 +146,68 @@ def load_model():
                     False,
                 )
             )
+
+            stored_dataset_rows = artifact.get(
+                "dataset_rows"
+            )
+
+            if isinstance(
+                stored_dataset_rows,
+                int,
+            ):
+                trained_dataset_rows = (
+                    stored_dataset_rows
+                )
+
+            stored_previous_rows = (
+                artifact.get(
+                    "previous_dataset_rows"
+                )
+            )
+
+            if isinstance(
+                stored_previous_rows,
+                int,
+            ):
+                previous_dataset_rows = (
+                    stored_previous_rows
+                )
+
+            stored_trained_at = artifact.get(
+                "trained_at"
+            )
+
+            if isinstance(
+                stored_trained_at,
+                str,
+            ):
+                last_trained_at = (
+                    stored_trained_at
+                )
+
+            stored_trigger = artifact.get(
+                "training_trigger"
+            )
+
+            if isinstance(
+                stored_trigger,
+                str,
+            ):
+                last_training_trigger = (
+                    stored_trigger
+                )
+
+            stored_metrics = artifact.get(
+                "metrics"
+            )
+
+            if isinstance(
+                stored_metrics,
+                dict,
+            ):
+                model_metrics = (
+                    stored_metrics
+                )
         else:
             # Legacy artifact support.
             model = artifact
@@ -117,6 +225,11 @@ def load_model():
         model = None
         model_feature_columns = None
         uses_sample_weights = False
+        trained_dataset_rows = None
+        previous_dataset_rows = None
+        last_trained_at = None
+        last_training_trigger = None
+        model_metrics = None
 
         model_load_error = str(
             error
@@ -193,6 +306,24 @@ def health():
         "usesSampleWeights":
             uses_sample_weights,
 
+        "trainedDatasetRows":
+            trained_dataset_rows,
+
+        "previousDatasetRows":
+            previous_dataset_rows,
+
+        "lastTrainedAt":
+            last_trained_at,
+
+        "lastTrainingTrigger":
+            last_training_trigger,
+
+        "metrics":
+            model_metrics,
+
+        "autoRetrainMinNewRows":
+            AUTO_RETRAIN_MIN_NEW_ROWS,
+
         "featureCount":
             (
                 len(
@@ -206,6 +337,316 @@ def health():
         "modelLoadError":
             model_load_error,
     })
+
+
+def validate_dataset_payload(
+    payload,
+):
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        raise ValueError(
+            "Dataset payload must be "
+            "a JSON object."
+        )
+
+    rows = payload.get(
+        "rows",
+    )
+
+    if not isinstance(
+        rows,
+        list,
+    ) or not rows:
+        raise ValueError(
+            "Dataset payload must contain "
+            "a non-empty rows array."
+        )
+
+    if len(rows) < 10:
+        raise ValueError(
+            "At least 10 training rows "
+            "are required."
+        )
+
+    for row in rows:
+        if not isinstance(
+            row,
+            dict,
+        ):
+            raise ValueError(
+                "Every dataset row must "
+                "be a JSON object."
+            )
+
+        if "label" not in row:
+            raise ValueError(
+                "Every dataset row must "
+                "contain a label."
+            )
+
+    return rows
+
+
+def replace_training_dataset(
+    payload,
+):
+    os.makedirs(
+        DATA_DIR,
+        exist_ok=True,
+    )
+
+    validate_dataset_payload(
+        payload
+    )
+
+    with open(
+        TEMP_DATA_PATH,
+        "w",
+        encoding="utf-8",
+    ) as file:
+        json.dump(
+            payload,
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    # Re-read the exact file that would be
+    # promoted so malformed/truncated JSON
+    # never replaces the working dataset.
+    with open(
+        TEMP_DATA_PATH,
+        "r",
+        encoding="utf-8",
+    ) as file:
+        validation_payload = json.load(
+            file
+        )
+
+    validate_dataset_payload(
+        validation_payload
+    )
+
+    os.replace(
+        TEMP_DATA_PATH,
+        DATA_PATH,
+    )
+
+
+def is_authorized_retrain_request():
+    expected_secret = os.environ.get(
+        "ML_RETRAIN_SECRET"
+    )
+
+    if not expected_secret:
+        return False
+
+    supplied_secret = request.headers.get(
+        "X-ML-Retrain-Secret",
+        "",
+    )
+
+    return hmac.compare_digest(
+        supplied_secret,
+        expected_secret,
+    )
+
+
+@app.post("/retrain")
+def retrain():
+    if not is_authorized_retrain_request():
+        return jsonify({
+            "success": False,
+            "message": "Unauthorized.",
+        }), 401
+
+    # Prevent two retraining jobs from writing
+    # model artifacts at the same time.
+    if not retrain_lock.acquire(
+        blocking=False
+    ):
+        return jsonify({
+            "success": False,
+            "message":
+                "A retraining job is "
+                "already running.",
+        }), 409
+
+    try:
+        dataset_payload = (
+            request.get_json(
+                silent=True
+            ) or {}
+        )
+
+        rows = validate_dataset_payload(
+            dataset_payload
+        )
+
+        auto_mode = (
+            request.args.get(
+                "auto",
+                "",
+            )
+            in {
+                "1",
+                "true",
+                "yes",
+            }
+        )
+
+        current_dataset_rows = len(
+            rows
+        )
+
+        new_rows_since_training = (
+            current_dataset_rows -
+            trained_dataset_rows
+            if trained_dataset_rows
+            is not None
+            else None
+        )
+
+        if (
+            auto_mode
+            and trained_dataset_rows
+            is not None
+            and new_rows_since_training
+            < AUTO_RETRAIN_MIN_NEW_ROWS
+        ):
+            return jsonify({
+                "success": True,
+                "skipped": True,
+
+                "message":
+                    "Automatic retraining "
+                    "threshold has not been "
+                    "reached yet.",
+
+                "currentDatasetRows":
+                    current_dataset_rows,
+
+                "trainedDatasetRows":
+                    trained_dataset_rows,
+
+                "newRowsSinceTraining":
+                    new_rows_since_training,
+
+                "requiredNewRows":
+                    AUTO_RETRAIN_MIN_NEW_ROWS,
+            })
+
+        replace_training_dataset(
+            dataset_payload
+        )
+
+        training_trigger = (
+            "automatic"
+            if auto_mode
+            else "manual"
+        )
+
+        result = train_model(
+            trigger=
+                training_trigger,
+
+            previous_dataset_rows=
+                trained_dataset_rows,
+        )
+
+        # train_model() promotes the new artifact
+        # only after validating it. Reload only
+        # after that succeeds.
+        load_model()
+
+        if model is None:
+            raise RuntimeError(
+                model_load_error
+                or "New model could not be loaded."
+            )
+
+        return jsonify({
+            "success": True,
+            "skipped": False,
+            "message":
+                "Model retrained and reloaded.",
+
+            "newRowsSinceTraining":
+                new_rows_since_training,
+
+            "requiredNewRows":
+                AUTO_RETRAIN_MIN_NEW_ROWS,
+
+            "training":
+                result,
+
+            "dataset": {
+                "rows":
+                    len(
+                        dataset_payload.get(
+                            "rows",
+                            [],
+                        )
+                    ),
+
+                "rawCount":
+                    dataset_payload.get(
+                        "rawCount"
+                    ),
+
+                "legacyRemoved":
+                    dataset_payload.get(
+                        "legacyRemoved"
+                    ),
+
+                "removedDuplicates":
+                    dataset_payload.get(
+                        "removedDuplicates"
+                    ),
+            },
+
+            "featureCount":
+                (
+                    len(
+                        model_feature_columns
+                    )
+                    if model_feature_columns
+                    is not None
+                    else None
+                ),
+
+            "lastTrainedAt":
+                last_trained_at,
+
+            "lastTrainingTrigger":
+                last_training_trigger,
+
+            "trainedDatasetRows":
+                trained_dataset_rows,
+        })
+
+    except Exception as error:
+        print(
+            "Retraining failed:",
+            error,
+        )
+
+        # The previous model.joblib is preserved
+        # unless the new artifact fully validated.
+        return jsonify({
+            "success": False,
+            "message":
+                "Retraining failed. "
+                "The previous model was kept.",
+
+            "error":
+                str(error),
+        }), 500
+
+    finally:
+        retrain_lock.release()
 
 
 @app.post("/rank")

@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import {
+  Bookmark,
   Check,
   EyeOff,
   LoaderCircle,
@@ -28,16 +29,27 @@ import type {
 
 type RecommendationCardProps = {
   movie: RecommendedMovie;
-
-  onImpression?: (
-    movie: RecommendedMovie,
-  ) => void;
+  onImpression?: () => void;
 };
 
 type Feedback =
   | "seen"
   | "not_interested"
   | null;
+
+type InteractionResponse = {
+  success: boolean;
+  message?: string;
+
+  interaction?: {
+    watched: boolean;
+    liked: boolean;
+    watchlisted: boolean;
+    rating: number | null;
+    lastWatchedAt: string | null;
+    logCount: number;
+  };
+};
 
 export function RecommendationCard({
   movie,
@@ -51,19 +63,36 @@ export function RecommendationCard({
     setIsSavingFeedback,
   ] = useState(false);
 
-  const cardRef =
-    useRef<HTMLElement>(null);
+  const [
+    isWatchlisted,
+    setIsWatchlisted,
+  ] = useState(false);
 
-  const impressionRecorded =
+  const [
+    isSavingWatchlist,
+    setIsSavingWatchlist,
+  ] = useState(false);
+
+  const cardRef =
+    useRef<HTMLElement | null>(
+      null,
+    );
+
+  const impressionSent =
     useRef(false);
 
+  /*
+   * Count an impression once the card is
+   * meaningfully visible to the user.
+   */
   useEffect(() => {
     const element =
       cardRef.current;
 
     if (
       !element ||
-      !onImpression
+      !onImpression ||
+      impressionSent.current
     ) {
       return;
     }
@@ -75,36 +104,124 @@ export function RecommendationCard({
             entries[0];
 
           if (
-            !entry ||
-            !entry.isIntersecting ||
-            entry.intersectionRatio <
-              0.5 ||
-            impressionRecorded.current
+            entry?.isIntersecting &&
+            entry.intersectionRatio >=
+              0.5 &&
+            !impressionSent.current
           ) {
-            return;
+            impressionSent.current =
+              true;
+
+            onImpression();
+
+            observer.disconnect();
           }
-
-          impressionRecorded.current =
-            true;
-
-          onImpression(movie);
-
-          observer.disconnect();
         },
         {
-          threshold: 0.5,
+          threshold: [0.5],
         },
       );
 
-    observer.observe(element);
+    observer.observe(
+      element,
+    );
 
     return () => {
       observer.disconnect();
     };
-  }, [
-    movie,
-    onImpression,
-  ]);
+  }, [onImpression]);
+
+  async function patchInteraction(
+    patch: {
+      watched?: boolean;
+      watchlisted?: boolean;
+      lastWatchedAt?:
+        | string
+        | null;
+    },
+  ) {
+    const response =
+      await fetch(
+        `/api/movies/${movie.id}/interaction`,
+        {
+          method: "PATCH",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          credentials:
+            "include",
+
+          body: JSON.stringify({
+            movieTitle:
+              movie.title,
+
+            movieYear:
+              movie.year,
+
+            poster:
+              movie.poster,
+
+            genre:
+              movie.genre,
+
+            ...patch,
+          }),
+        },
+      );
+
+    const data =
+      (await response.json()) as InteractionResponse;
+
+    if (
+      !response.ok ||
+      !data.success
+    ) {
+      throw new Error(
+        data.message ||
+          "Could not update this movie.",
+      );
+    }
+
+    return data.interaction;
+  }
+
+  async function handleWatchlist() {
+    if (isSavingWatchlist) {
+      return;
+    }
+
+    const nextWatchlisted =
+      !isWatchlisted;
+
+    setIsSavingWatchlist(
+      true,
+    );
+
+    try {
+      const interaction =
+        await patchInteraction({
+          watchlisted:
+            nextWatchlisted,
+        });
+
+      setIsWatchlisted(
+        interaction?.watchlisted ??
+          nextWatchlisted,
+      );
+    } catch (error) {
+      console.error(
+        "Could not update watchlist:",
+        error,
+      );
+    } finally {
+      setIsSavingWatchlist(
+        false,
+      );
+    }
+  }
 
   async function handleFeedback(
     nextFeedback: Exclude<
@@ -116,19 +233,31 @@ export function RecommendationCard({
       return;
     }
 
-    setIsSavingFeedback(true);
+    setIsSavingFeedback(
+      true,
+    );
 
     try {
       if (
         feedback ===
         nextFeedback
       ) {
+        /*
+         * Removing recommendation feedback
+         * should not silently undo a real
+         * watched interaction. Once "Seen"
+         * has added the film to Watched, it
+         * stays there until the user changes
+         * it from the normal movie controls.
+         */
         await removeRecommendationFeedback(
           movie.id,
           nextFeedback,
         );
 
-        setFeedback(null);
+        setFeedback(
+          null,
+        );
 
         return;
       }
@@ -145,6 +274,31 @@ export function RecommendationCard({
         nextFeedback,
       );
 
+      if (
+        nextFeedback ===
+        "seen"
+      ) {
+        const interaction =
+          await patchInteraction({
+            watched: true,
+
+            /*
+             * A watched film should no longer
+             * remain in "watch later".
+             */
+            watchlisted:
+              false,
+
+            lastWatchedAt:
+              new Date().toISOString(),
+          });
+
+        setIsWatchlisted(
+          interaction?.watchlisted ??
+            false,
+        );
+      }
+
       setFeedback(
         nextFeedback,
       );
@@ -154,7 +308,9 @@ export function RecommendationCard({
         error,
       );
     } finally {
-      setIsSavingFeedback(false);
+      setIsSavingFeedback(
+        false,
+      );
     }
   }
 
@@ -177,60 +333,102 @@ export function RecommendationCard({
       ref={cardRef}
       className="group min-w-0"
     >
-      <Link
-        href={`/movies/${movie.id}`}
-        className="block"
-        onClick={() => {
-          void handleOpen();
-        }}
-      >
-        <div className="relative aspect-[2/3] overflow-hidden rounded-xl border border-white/10 bg-[#080808]">
-          <Image
-            src={movie.poster}
-            alt={`${movie.title} poster`}
-            fill
-            className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-            sizes="(max-width: 640px) 50vw, 20vw"
-          />
+      <div className="relative">
+        <Link
+          href={`/movies/${movie.id}`}
+          className="block"
+          onClick={() => {
+            void handleOpen();
+          }}
+        >
+          <div className="relative aspect-[2/3] overflow-hidden rounded-xl border border-white/10 bg-[#080808]">
+            <Image
+              src={movie.poster}
+              alt={`${movie.title} poster`}
+              fill
+              className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+              sizes="(max-width: 640px) 50vw, 20vw"
+            />
 
-          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/15" />
-{/*
-          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full border border-[#6D001A]/70 bg-[#6D001A]/85 px-2.5 py-1 backdrop-blur-md">
-            <Sparkles className="size-3 text-white" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/15" />
 
-            <span className="text-[10px] font-semibold text-white">
-              {movie.matchScore}%
-            </span>
-          </div>
-          */}
+            <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full border border-[#6D001A]/70 bg-[#6D001A]/85 px-2.5 py-1 backdrop-blur-md">
+              <Sparkles className="size-3 text-white" />
 
-          <div className="absolute inset-x-0 bottom-0 p-3">
-            <p className="truncate text-sm font-medium text-white">
-              {movie.title}
-            </p>
-
-            <div className="mt-1 flex items-center gap-2 text-xs text-white/45">
-              <span>
-                {movie.year}
-              </span>
-
-              <span>·</span>
-
-              <span className="truncate">
-                {movie.genre}
-              </span>
-
-              <span className="ml-auto flex shrink-0 items-center gap-1 text-white/70">
-                <Star className="size-3 fill-[#A51636] text-[#A51636]" />
-
-                {movie.rating.toFixed(
-                  1,
-                )}
+              <span className="text-[10px] font-semibold text-white">
+                {movie.matchScore}%
               </span>
             </div>
+
+            <div className="absolute inset-x-0 bottom-0 p-3">
+              <p className="truncate text-sm font-medium text-white">
+                {movie.title}
+              </p>
+
+              <div className="mt-1 flex items-center gap-2 text-xs text-white/45">
+                <span>
+                  {movie.year}
+                </span>
+
+                <span>·</span>
+
+                <span className="truncate">
+                  {movie.genre}
+                </span>
+
+                <span className="ml-auto flex shrink-0 items-center gap-1 text-white/70">
+                  <Star className="size-3 fill-[#A51636] text-[#A51636]" />
+
+                  {movie.rating.toFixed(
+                    1,
+                  )}
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
-      </Link>
+        </Link>
+
+        <button
+          type="button"
+          aria-label={
+            isWatchlisted
+              ? `Remove ${movie.title} from watchlist`
+              : `Add ${movie.title} to watchlist`
+          }
+          title={
+            isWatchlisted
+              ? "Remove from watchlist"
+              : "Add to watchlist"
+          }
+          disabled={
+            isSavingWatchlist ||
+            feedback === "seen"
+          }
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            void handleWatchlist();
+          }}
+          className={`absolute right-3 top-3 z-20 flex size-9 items-center justify-center rounded-full border backdrop-blur-md transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            isWatchlisted
+              ? "border-[#A51636]/80 bg-[#6D001A] text-white"
+              : "border-white/15 bg-black/70 text-white/75 hover:border-[#A51636]/70 hover:bg-[#6D001A] hover:text-white"
+          }`}
+        >
+          {isSavingWatchlist ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : (
+            <Bookmark
+              className={`size-4 ${
+                isWatchlisted
+                  ? "fill-current"
+                  : ""
+              }`}
+            />
+          )}
+        </button>
+      </div>
 
       <div className="mt-3">
         <div className="rounded-xl border border-white/10 bg-[#080808] p-3">

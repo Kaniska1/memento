@@ -98,11 +98,6 @@ export function RecommendationsClient() {
   const [error, setError] =
     useState("");
 
-  const [
-    reloadKey,
-    setReloadKey,
-  ] = useState(0);
-
   /*
    * Oldest -> newest recommendation batches.
    *
@@ -176,149 +171,132 @@ export function RecommendationsClient() {
     };
   }, []);
 
+  const loadRecommendations =
+    useCallback(
+      async (
+        batches:
+          number[][] = [],
+      ) => {
+        if (!preferences) {
+          return;
+        }
+
+        setIsLoading(true);
+        setError("");
+
+        try {
+          const params =
+            new URLSearchParams();
+
+          if (
+            batches.length > 0
+          ) {
+            params.set(
+              "recentBatches",
+              JSON.stringify(
+                batches,
+              ),
+            );
+          }
+
+          const query =
+            params.toString();
+
+          const endpoint =
+            query
+              ? `/api/tmdb/recommendations?${query}`
+              : "/api/tmdb/recommendations";
+
+          const response =
+            await fetch(
+              endpoint,
+              {
+                credentials:
+                  "include",
+
+                cache:
+                  "no-store",
+              },
+            );
+
+          const data =
+            (await response.json()) as RecommendationResponse;
+
+          if (!response.ok) {
+            throw new Error(
+              data.message ||
+                "Could not load your recommendations.",
+            );
+          }
+
+          /*
+           * New recommendation batch =
+           * new impression tracking session.
+           */
+          recordedMovieIds.current.clear();
+
+          pendingImpressions.current =
+            [];
+
+          if (flushTimer.current) {
+            clearTimeout(
+              flushTimer.current,
+            );
+
+            flushTimer.current =
+              null;
+          }
+
+          const nextMovies =
+            data.results ?? [];
+
+          setMovies(
+            nextMovies,
+          );
+
+          if (data.meta) {
+            setRecommendationMeta({
+              watchedCount:
+                data.meta.totalSeenCount,
+
+              experienceScore:
+                data.meta.experienceScore,
+
+              recommendationStyle:
+                data.meta.recommendationStyle,
+            });
+          } else {
+            setRecommendationMeta(
+              null,
+            );
+          }
+        } catch (loadError) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load recommendations.",
+          );
+        } finally {
+          setIsLoading(false);
+        }
+      },
+      [preferences],
+    );
+
   /*
-   * Load recommendations once
-   * preferences are available.
+   * Initial load has no temporary exclusions.
    */
   useEffect(() => {
     if (!preferences) {
       return;
     }
 
-    const controller =
-      new AbortController();
-
-    async function loadRecommendations() {
-      setIsLoading(true);
-      setError("");
-
-      try {
-        const params =
-          new URLSearchParams();
-
-        if (
-          recentBatches.current
-            .length > 0
-        ) {
-          params.set(
-            "recentBatches",
-            JSON.stringify(
-              recentBatches.current,
-            ),
-          );
-        }
-
-        const query =
-          params.toString();
-
-        const endpoint =
-          query
-            ? `/api/tmdb/recommendations?${query}`
-            : "/api/tmdb/recommendations";
-
-        const response =
-          await fetch(
-            endpoint,
-            {
-              signal:
-                controller.signal,
-
-              credentials:
-                "include",
-
-              cache:
-                "no-store",
-            },
-          );
-
-        const data =
-          (await response.json()) as RecommendationResponse;
-
-        if (!response.ok) {
-          throw new Error(
-            data.message ||
-              "Could not load your recommendations.",
-          );
-        }
-
-        /*
-         * New recommendation batch =
-         * new impression tracking session.
-         */
-        recordedMovieIds.current.clear();
-
-        pendingImpressions.current =
-          [];
-
-        if (flushTimer.current) {
-          clearTimeout(
-            flushTimer.current,
-          );
-
-          flushTimer.current =
-            null;
-        }
-
-        const nextMovies =
-          data.results ?? [];
-
-        setMovies(
-          nextMovies,
-        );
-
-        if (data.meta) {
-          setRecommendationMeta({
-            /*
-             * Keep the impression payload's
-             * existing field name while using
-             * the clearer API metadata name.
-             */
-            watchedCount:
-              data.meta.totalSeenCount,
-
-            experienceScore:
-              data.meta.experienceScore,
-
-            recommendationStyle:
-              data.meta.recommendationStyle,
-          });
-        } else {
-          setRecommendationMeta(
-            null,
-          );
-        }
-      } catch (loadError) {
-        if (
-          loadError instanceof
-            DOMException &&
-          loadError.name ===
-            "AbortError"
-        ) {
-          return;
-        }
-
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Could not load recommendations.",
-        );
-      } finally {
-        if (
-          !controller.signal.aborted
-        ) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void loadRecommendations();
-
-    return () => {
-      controller.abort();
-    };
+    void loadRecommendations(
+      [],
+    );
   }, [
     preferences,
-    reloadKey,
+    loadRecommendations,
   ]);
 
   const flushImpressions =
@@ -409,38 +387,47 @@ export function RecommendationsClient() {
 
   const handleRefreshPicks =
     useCallback(() => {
-      /*
-       * Record the batch that is CURRENTLY
-       * visible immediately before requesting
-       * the next one.
-       *
-       * Doing this in the click handler makes
-       * the rotation deterministic: the very
-       * request triggered by this click already
-       * contains the current batch as an
-       * exclusion.
-       */
-      if (movies.length > 0) {
-        const currentBatch =
-          movies.map(
-            (movie) =>
-              movie.id,
-          );
-
-        recentBatches.current =
-          [
-            ...recentBatches.current,
-            currentBatch,
-          ].slice(
-            -MAX_RECENT_BATCHES,
-          );
+      if (
+        isLoading ||
+        movies.length === 0
+      ) {
+        return;
       }
 
-      setReloadKey(
-        (current) =>
-          current + 1,
+      const currentBatch =
+        movies.map(
+          (movie) =>
+            movie.id,
+        );
+
+      const nextBatches =
+        [
+          ...recentBatches.current,
+          currentBatch,
+        ].slice(
+          -MAX_RECENT_BATCHES,
+        );
+
+      /*
+       * Store first so the next click sees
+       * the updated history, then pass the
+       * exact same array directly into this
+       * refresh request.
+       *
+       * No reloadKey/useEffect indirection:
+       * the click itself creates the request.
+       */
+      recentBatches.current =
+        nextBatches;
+
+      void loadRecommendations(
+        nextBatches,
       );
-    }, [movies]);
+    }, [
+      isLoading,
+      movies,
+      loadRecommendations,
+    ]);
 
   if (isLoadingPreferences) {
     return (
@@ -568,9 +555,8 @@ export function RecommendationsClient() {
                 <Button
                   type="button"
                   onClick={() =>
-                    setReloadKey(
-                      (current) =>
-                        current + 1,
+                    void loadRecommendations(
+                      recentBatches.current,
                     )
                   }
                   className="mt-5 bg-[#6D001A] text-white hover:bg-[#850522]"

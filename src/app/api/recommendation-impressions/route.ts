@@ -7,10 +7,12 @@ import RecommendationImpression from "@/models/RecommendationImpression";
 
 export const runtime = "nodejs";
 
-type RecommendationStyle =
-  | "familiar"
-  | "balanced"
-  | "adventurous";
+const AUTO_RETRAIN_CHECK_EVERY_RAW =
+  Number(
+    process.env
+      .ML_RETRAIN_CHECK_EVERY_RAW ??
+      50,
+  );
 
 type ImpressionInput = {
   movieId: number;
@@ -28,20 +30,17 @@ type ImpressionInput = {
   international: boolean;
   obscurityScore: number;
 
-  /*
-   * ML-ready features.
-   */
   genreAffinity: number;
-  seededSimilarity: number;
+seededSimilarity: number;
 
-  qualityScore: number;
-  popularityScore: number;
-  voteStrength: number;
+qualityScore: number;
+popularityScore: number;
+voteStrength: number;
 
-  sourceFavourite: boolean;
-  sourceGenre: boolean;
-  sourceInternational: boolean;
-  sourceObscure: boolean;
+sourceFavourite: boolean;
+sourceGenre: boolean;
+sourceInternational: boolean;
+sourceObscure: boolean;
 };
 
 type ImpressionRequest = {
@@ -49,27 +48,12 @@ type ImpressionRequest = {
   experienceScore: number;
 
   recommendationStyle:
-    RecommendationStyle;
+    | "familiar"
+    | "balanced"
+    | "adventurous";
 
   impressions: ImpressionInput[];
 };
-
-const recommendationStyles:
-  RecommendationStyle[] = [
-    "familiar",
-    "balanced",
-    "adventurous",
-  ];
-
-function isFiniteNumber(
-  value: unknown,
-): value is number {
-  return (
-    typeof value ===
-      "number" &&
-    Number.isFinite(value)
-  );
-}
 
 export async function POST(
   request: Request,
@@ -112,56 +96,28 @@ export async function POST(
     }
 
     /*
-     * Prevent oversized requests and
-     * discard malformed impressions.
+     * Never allow an arbitrary client
+     * to dump thousands of records into
+     * the database in one request.
      */
     const impressions =
       body.impressions
         .slice(0, 50)
         .filter(
-          (
-            impression,
-          ) =>
-            isFiniteNumber(
+          (impression) =>
+            Number.isFinite(
               impression.movieId,
             ) &&
-            isFiniteNumber(
+            Number.isFinite(
               impression.position,
             ) &&
-            impression.position >=
-              0 &&
-            isFiniteNumber(
+            Number.isFinite(
               impression.matchScore,
-            ) &&
-            isFiniteNumber(
-              impression.tmdbRating,
-            ) &&
-            isFiniteNumber(
-              impression.mementoRatingCount,
-            ) &&
-            isFiniteNumber(
-              impression.obscurityScore,
-            ) &&
-            isFiniteNumber(
-              impression.genreAffinity,
-            ) &&
-            isFiniteNumber(
-              impression.seededSimilarity,
-            ) &&
-            isFiniteNumber(
-              impression.qualityScore,
-            ) &&
-            isFiniteNumber(
-              impression.popularityScore,
-            ) &&
-            isFiniteNumber(
-              impression.voteStrength,
             ),
         );
 
     if (
-      impressions.length ===
-      0
+      impressions.length === 0
     ) {
       return NextResponse.json(
         {
@@ -175,34 +131,13 @@ export async function POST(
       );
     }
 
-    const watchedCount =
-      isFiniteNumber(
-        body.watchedCount,
-      )
-        ? Math.max(
-            0,
-            body.watchedCount,
-          )
-        : 0;
-
-    const experienceScore =
-      isFiniteNumber(
-        body.experienceScore,
-      )
-        ? Math.max(
-            0,
-            body.experienceScore,
-          )
-        : 0;
-
-    const recommendationStyle =
-      recommendationStyles.includes(
-        body.recommendationStyle,
-      )
-        ? body.recommendationStyle
-        : "balanced";
-
     await connectDB();
+
+    const rawCountBefore =
+      await RecommendationImpression.countDocuments({
+        userId:
+          currentUser.id,
+      });
 
     await RecommendationImpression.insertMany(
       impressions.map(
@@ -223,77 +158,150 @@ export async function POST(
             impression.tmdbRating,
 
           mementoRating:
-            isFiniteNumber(
-              impression.mementoRating,
-            )
-              ? impression.mementoRating
-              : null,
+            impression.mementoRating,
 
           mementoRatingCount:
             impression.mementoRatingCount,
 
           international:
-            Boolean(
-              impression.international,
-            ),
+            impression.international,
 
           obscurityScore:
             impression.obscurityScore,
 
-          /*
-           * ML features frozen at the
-           * moment the recommendation
-           * was actually shown.
-           */
           genreAffinity:
-            impression.genreAffinity,
+  impression.genreAffinity,
 
-          seededSimilarity:
-            impression.seededSimilarity,
+seededSimilarity:
+  impression.seededSimilarity,
 
-          qualityScore:
-            impression.qualityScore,
+qualityScore:
+  impression.qualityScore,
 
-          popularityScore:
-            impression.popularityScore,
+popularityScore:
+  impression.popularityScore,
 
-          voteStrength:
-            impression.voteStrength,
+voteStrength:
+  impression.voteStrength,
 
-          sourceFavourite:
-            Boolean(
-              impression.sourceFavourite,
-            ),
+sourceFavourite:
+  impression.sourceFavourite,
 
-          sourceGenre:
-            Boolean(
-              impression.sourceGenre,
-            ),
+sourceGenre:
+  impression.sourceGenre,
 
-          sourceInternational:
-            Boolean(
-              impression.sourceInternational,
-            ),
+sourceInternational:
+  impression.sourceInternational,
 
-          sourceObscure:
-            Boolean(
-              impression.sourceObscure,
-            ),
+sourceObscure:
+  impression.sourceObscure,
 
-          watchedCount,
+          watchedCount:
+            Number.isFinite(
+              body.watchedCount,
+            )
+              ? body.watchedCount
+              : 0,
 
-          experienceScore,
+          experienceScore:
+            Number.isFinite(
+              body.experienceScore,
+            )
+              ? body.experienceScore
+              : 0,
 
-          recommendationStyle,
+          recommendationStyle:
+            body.recommendationStyle ??
+            "balanced",
         }),
       ),
     );
+
+    const rawCountAfter =
+      rawCountBefore +
+      impressions.length;
+
+    const previousBucket =
+      Math.floor(
+        rawCountBefore /
+          AUTO_RETRAIN_CHECK_EVERY_RAW,
+      );
+
+    const currentBucket =
+      Math.floor(
+        rawCountAfter /
+          AUTO_RETRAIN_CHECK_EVERY_RAW,
+      );
+
+    const crossedRetrainCheck =
+      currentBucket >
+      previousBucket;
+
+    /*
+     * Avoid rebuilding the cleaned dataset
+     * after every impression flush. We only
+     * ask for an automatic retrain check when
+     * another block of raw impressions has
+     * accumulated.
+     *
+     * The retrain endpoint still applies the
+     * real threshold using CLEANED/BALANCED
+     * dataset rows, so duplicate impressions
+     * do not cause unnecessary model updates.
+     */
+    if (crossedRetrainCheck) {
+      try {
+        const requestUrl =
+          new URL(request.url);
+
+        const cookie =
+          request.headers.get(
+            "cookie",
+          );
+
+        await fetch(
+          new URL(
+            "/api/ml/retrain?auto=1",
+            requestUrl.origin,
+          ),
+          {
+            method: "POST",
+
+            headers:
+              cookie
+                ? {
+                    cookie,
+                  }
+                : undefined,
+
+            cache:
+              "no-store",
+          },
+        );
+      } catch (retrainError) {
+        /*
+         * Impression recording must never fail
+         * just because automatic retraining is
+         * temporarily unavailable.
+         */
+        console.error(
+          "Automatic ML retrain check failed:",
+          retrainError,
+        );
+      }
+    }
 
     return NextResponse.json({
       success: true,
 
       recorded:
         impressions.length,
+
+      rawImpressionCount:
+        rawCountAfter,
+
+      automaticRetrainCheck:
+        crossedRetrainCheck,
     });
   } catch (error) {
     console.error(

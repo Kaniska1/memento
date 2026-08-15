@@ -157,15 +157,53 @@ export async function PATCH(
 
     await connectDB();
 
+    /*
+     * --------------------------------
+     * WATCHED INVARIANTS
+     * --------------------------------
+     *
+     * Liking or rating a film is evidence
+     * that the user has watched it.
+     *
+     * Therefore:
+     * - liked: true      => watched: true
+     * - rating != null   => watched: true
+     * - watched: true    => watchlisted: false
+     * - newly watched    => lastWatchedAt = now
+     *
+     * Removing a like or clearing a rating
+     * does NOT automatically unwatch a film.
+     */
+    const shouldMarkWatched =
+      parsed.data.watched === true ||
+      parsed.data.liked === true ||
+      (
+        parsed.data.rating !==
+          undefined &&
+        parsed.data.rating !== null
+      );
+
     const updateData = {
       ...parsed.data,
+
+      watched:
+        shouldMarkWatched
+          ? true
+          : parsed.data.watched,
+
+      watchlisted:
+        shouldMarkWatched
+          ? false
+          : parsed.data.watchlisted,
 
       lastWatchedAt:
         parsed.data.lastWatchedAt !== undefined
           ? parsed.data.lastWatchedAt
             ? new Date(parsed.data.lastWatchedAt)
             : null
-          : undefined,
+          : shouldMarkWatched
+            ? new Date()
+            : undefined,
     };
 
     const interaction =
