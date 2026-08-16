@@ -2,11 +2,13 @@
 
 **A personal film companion that learns your taste instead of just storing your watch history.**
 
+
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-memento--sable.vercel.app-black?style=for-the-badge)](https://memento-sable.vercel.app/)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-ML-3776AB?style=for-the-badge&logo=python&logoColor=white)
+
 
 Memento combines film tracking, a Letterboxd-grade diary, TMDB discovery, and a hybrid recommendation system that mixes deterministic taste signals with a weighted machine-learning ranker.
 
@@ -17,6 +19,8 @@ Memento combines film tracking, a Letterboxd-grade diary, TMDB discovery, and a 
 **Production app:** https://memento-sable.vercel.app/
 
 The Next.js application is deployed on **Vercel**, backed by **MongoDB Atlas**, with the recommendation model served independently from **Render**.
+
+<img width="1914" height="855" alt="image" src="https://github.com/user-attachments/assets/a70bb222-818b-4f41-8b46-15e11851d756" />
 
 ---
 
@@ -349,6 +353,28 @@ memento/
 
 ---
 
+# 📸 Screenshots
+
+<div align="center">
+
+<img width="48%" height="864" alt="image" src="https://github.com/user-attachments/assets/a33f980d-d575-4956-a816-69f33e6d3512" />
+<img width="48%" height="861" alt="image" src="https://github.com/user-attachments/assets/9e4ba674-4220-44b5-85d5-ae04c93a80d9" />
+
+<br />
+<img width="48%" height="863" alt="image" src="https://github.com/user-attachments/assets/c3dddee4-88b1-4711-9e14-45b81d6abc2a" />
+<img width="48%" height="859" alt="image" src="https://github.com/user-attachments/assets/f2818cac-d0df-45e9-b52b-e4b8bc0519d2" />
+
+<br />
+<img width="32%" height="852" alt="image" src="https://github.com/user-attachments/assets/8fb339d0-1c1d-4dc5-9525-bcbaf9c1a4c0" />
+<img width="32%" height="857" alt="image" src="https://github.com/user-attachments/assets/dc38e23a-7c2f-4cc1-95b5-07a77df948ed" />
+<img width="32%" height="861" alt="image" src="https://github.com/user-attachments/assets/872a371b-7ce2-431d-8760-9a317bfc1c6d" />
+
+
+
+</div>
+
+---
+
 ## Local Development
 
 ### 1. Install the Next.js app
@@ -474,6 +500,7 @@ A few choices were deliberate:
 - **Recommendation rotation is temporary UI state, not permanent taste data.**
 
 ---
+
 
 ## Portfolio Demo Flow
 
