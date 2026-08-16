@@ -2,9 +2,21 @@
 
 **A personal film companion that learns your taste instead of just storing your watch history.**
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-memento--sable.vercel.app-black?style=for-the-badge)](https://memento-sable.vercel.app/)
+![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
+![Python](https://img.shields.io/badge/Python-ML-3776AB?style=for-the-badge&logo=python&logoColor=white)
+
 Memento combines film tracking, a Letterboxd-grade diary, TMDB discovery, and a hybrid recommendation system that mixes deterministic taste signals with a weighted machine-learning ranker.
 
-> Built with Next.js, TypeScript, MongoDB, TMDB, Flask, and scikit-learn.
+> Built with Next.js, TypeScript, MongoDB Atlas, TMDB, Flask, and scikit-learn.
+
+## Live Demo
+
+**Production app:** https://memento-sable.vercel.app/
+
+The Next.js application is deployed on **Vercel**, backed by **MongoDB Atlas**, with the recommendation model served independently from **Render**.
 
 ---
 
@@ -52,8 +64,6 @@ That profile feeds a hybrid ranking pipeline that gets better as the user intera
 
 Memento does not ask a single model to do everything.
 
-The recommendation flow is split into distinct stages:
-
 ```mermaid
 flowchart LR
     A[User taste + history] --> B[Candidate generation]
@@ -90,7 +100,7 @@ The current ranking blend is:
 15% diversity / exploration
 ```
 
-If the ML service is unavailable, Memento falls back to deterministic ranking rather than failing the recommendation page.
+If the ML service is unavailable, Memento falls back to deterministic ranking rather than taking down the recommendation experience.
 
 ### Recommendation signals
 
@@ -109,7 +119,7 @@ The feature pipeline includes signals such as:
 - candidate source
 - recommendation style
 
-Imported Letterboxd history enriches the user taste profile but **does not masquerade as Memento recommendation impressions**, keeping the ML feedback dataset semantically clean.
+Imported Letterboxd history enriches the user's taste profile but does **not** masquerade as Memento recommendation impressions, keeping the ML feedback dataset semantically clean.
 
 ---
 
@@ -125,25 +135,25 @@ flowchart LR
     FLASK -->|scores| NX
 
     DATA[Clean recommendation feedback] --> TRAIN[train.py]
-    TRAIN --> VALIDATE[validate artifact]
+    TRAIN --> VALIDATE[Validate artifact]
     VALIDATE --> MODEL
 ```
 
 The trainer uses sample weighting so weak neutral impressions do not drown out stronger explicit signals.
 
-A health endpoint exposes the active model state, including:
+The deployed model exposes health metadata such as:
 
 ```json
 {
   "modelLoaded": true,
   "featureCount": 17,
   "usesSampleWeights": true,
-  "trainedDatasetRows": 624,
-  "lastTrainingTrigger": "manual"
+  "trainedDatasetRows": 793,
+  "lastTrainingTrigger": "automatic"
 }
 ```
 
-Automatic retraining checks the cleaned dataset and only retrains after the configured threshold of genuinely new usable rows has been reached.
+Automatic retraining checks the cleaned dataset and retrains only after the configured threshold of genuinely new usable rows is reached.
 
 ---
 
@@ -236,9 +246,9 @@ flowchart TB
     U[Browser] --> NEXT[Next.js App Router]
 
     NEXT --> AUTH[Auth + server routes]
-    NEXT --> MDB[(MongoDB)]
+    NEXT --> MDB[(MongoDB Atlas)]
     NEXT --> TMDB[TMDB API]
-    NEXT --> ML[Flask ML service]
+    NEXT --> ML[Flask ML service on Render]
 
     ML --> MODEL[(joblib model)]
     ML --> TRAIN[Weighted trainer]
@@ -259,7 +269,7 @@ flowchart TB
 
 ### Frontend / application
 
-- Next.js
+- Next.js 16
 - React
 - TypeScript
 - Tailwind CSS
@@ -269,7 +279,7 @@ flowchart TB
 ### Backend / data
 
 - Next.js Route Handlers
-- MongoDB
+- MongoDB Atlas
 - Mongoose
 
 ### Recommendation / ML
@@ -279,11 +289,35 @@ flowchart TB
 - scikit-learn
 - pandas
 - joblib
+- Gunicorn
 
 ### External APIs
 
 - TMDB
 - JustWatch provider data through TMDB
+
+### Deployment
+
+- Vercel — Next.js application
+- Render — Flask ML microservice
+- MongoDB Atlas — persistent database
+
+---
+
+## Production Architecture
+
+```text
+User
+  │
+  ▼
+Vercel — Next.js application
+  ├── MongoDB Atlas — persistent application data
+  ├── TMDB — movie metadata and discovery
+  └── Render — Flask ML ranking service
+          └── trained 17-feature recommendation model
+```
+
+The production deployment has been verified across authentication, persistent watchlist/watched state, diary and list flows, Letterboxd import, recommendation generation, and the remote ML ranking service.
 
 ---
 
@@ -328,12 +362,14 @@ Create `.env.local`:
 ```env
 MONGODB_URI=
 TMDB_ACCESS_TOKEN=
+JWT_SECRET=
 
-ML_SERVICE_URL=http://localhost:8001
+ML_SERVICE_URL=http://127.0.0.1:8001
 ML_RETRAIN_SECRET=
+ML_RETRAIN_MIN_NEW_ROWS=50
 ```
 
-Add any authentication secrets required by your current auth setup as well.
+Add any other authentication secrets required by the current auth configuration.
 
 Run:
 
@@ -345,7 +381,6 @@ npm run dev
 
 ```bash
 cd ml-service
-
 python -m venv .venv
 ```
 
@@ -374,13 +409,13 @@ ML_RETRAIN_SECRET=
 ML_RETRAIN_MIN_NEW_ROWS=50
 ```
 
-Start Flask:
+Start Flask locally:
 
 ```bash
 python app.py
 ```
 
-The app and ML service must use the **same** `ML_RETRAIN_SECRET`.
+The Next.js app and ML service must use the **same** `ML_RETRAIN_SECRET`.
 
 ---
 
@@ -414,33 +449,14 @@ Typical values used by the project include:
 ```env
 MONGODB_URI=
 TMDB_ACCESS_TOKEN=
+JWT_SECRET=
 
 ML_SERVICE_URL=
 ML_RETRAIN_SECRET=
-
-ML_RETRAIN_CHECK_EVERY_RAW=50
 ML_RETRAIN_MIN_NEW_ROWS=50
+
+NEXT_PUBLIC_APP_URL=
 ```
-
-Authentication-related environment variables depend on the current auth configuration.
-
----
-
-## Portfolio Demo Flow
-
-For a short demo, the strongest sequence is:
-
-1. Open the dashboard and global film discovery.
-2. Open **For You** and explain the hybrid recommendation score.
-3. Bookmark a recommendation directly from its poster.
-4. Mark another recommendation as seen.
-5. Rate or like a film and show that it enters Watched automatically.
-6. Open the Diary and demonstrate rewatches/reviews.
-7. Show Watchlist filtering and custom lists.
-8. Upload a Letterboxd export and show TMDB matching/manual review.
-9. Show the ML health endpoint and automatic retraining metadata.
-
-That demonstrates the product, full-stack engineering, data migration, and ML lifecycle without turning the demo into a code tour.
 
 ---
 
@@ -459,13 +475,37 @@ A few choices were deliberate:
 
 ---
 
+## Portfolio Demo Flow
+
+For a short demo:
+
+1. Open **For You** and explain the hybrid recommendation score.
+2. Bookmark a recommendation directly from its poster.
+3. Mark another recommendation as seen.
+4. Rate or like a film and show that it enters Watched automatically.
+5. Open the Diary and demonstrate rewatches/reviews.
+6. Show Watchlist filtering and custom lists.
+7. Upload a Letterboxd export and show TMDB matching/manual review.
+8. Show the deployed ML health metadata and automatic retraining state.
+
+This demonstrates the product, full-stack engineering, data migration, and ML lifecycle without turning the demo into a code tour.
+
+---
+
 ## Roadmap
 
-The core portfolio product is feature-complete. Remaining work is primarily production deployment, monitoring, and further model evaluation with larger real-world datasets.
+The core portfolio product is feature-complete and deployed.
+
+Future work is focused on:
+
+- production monitoring and observability
+- richer recommendation evaluation
+- larger real-world training datasets
+- additional model experiments
+- improved cold-start recommendation strategies
 
 ---
 
 ## Author
 
 Built by **Kaniska Mitra**.
-
