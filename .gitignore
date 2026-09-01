@@ -83,9 +83,6 @@ pip-wheel-metadata/
 # -------------------------
 # Trained artifacts should normally be rebuilt or stored via
 # release/object storage rather than committed to source.
-ml-service/model.joblib
-ml-service/model-*.joblib
-ml-service/*.joblib
 ml-service/*.pkl
 ml-service/*.pickle
 

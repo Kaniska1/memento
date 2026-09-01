@@ -1,14 +1,20 @@
 import { Hero } from "@/components/landing/hero";
 import { Navbar } from "@/components/layout/navbar";
-import { getTopTrendingMovie } from "@/lib/tmdb";
+import {
+  getLandingMoviePosters,
+  pickRandomPosters,
+} from "@/lib/landing-movies";
+
+export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const trendingMovie = await getTopTrendingMovie();
+  const posterPool = await getLandingMoviePosters();
+  const heroPosters = pickRandomPosters(posterPool, 28);
 
   return (
     <main className="min-h-screen bg-black">
       <Navbar />
-      <Hero trendingMovie={trendingMovie} />
+      <Hero posters={heroPosters} />
     </main>
   );
 }
